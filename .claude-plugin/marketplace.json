@@ -1,0 +1,8 @@
+{
+  "name": "superagent-method",
+  "owner": { "name": "Saverio Moretti" },
+  "description": "A way of working with Claude Code: coordinator agent, knowledge tree, session handoff, blind testers.",
+  "plugins": [
+    { "name": "superagent-method", "source": "./", "description": "Coordinator agent, knowledge tree, session handoff, phased process with blind testers, usage status line." }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "name": "superagent-method",
+  "version": "0.1.0",
+  "description": "A way of working with Claude Code: a coordinator agent, a knowledge tree read level by level, handoff between sessions, phased process with blind testers, usage status line.",
+  "author": { "name": "Saverio Moretti", "url": "https://saverio-moretti-dev.github.io" },
+  "homepage": "https://github.com/saverio-moretti-dev/superagent-method",
+  "keywords": ["subagents", "workflow", "handoff", "blind-testing", "token-usage"]
+}
