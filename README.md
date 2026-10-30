@@ -44,3 +44,7 @@ Handoff notes are saved in `~/.claude/passaggi/`.
 ## Italiano
 
 Il mio modo di lavorare con Claude Code, in un plugin: **meno token per compito e lavoro migliore**. Conoscenze ad albero lette per livelli, un superagente che coordina e controlla, passaggio di consegne fra sessioni (`/passaggio`, `/riparti`), processo a fasi con ricerca salvata e piano approvato (`generale`), tester ciechi per collaudare le consegne (`prova-cieca`), barra del consumo nel terminale. Installazione: i due comandi `/plugin` qui sopra.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
