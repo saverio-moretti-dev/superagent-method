@@ -1,2 +1,6 @@
 .DS_Store
 __pycache__/
+
+# note private di lavoro (repo pubblica)
+_lavori/
+CLAUDE.local.md
