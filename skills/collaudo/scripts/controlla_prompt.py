@@ -2,7 +2,7 @@
 """Controlla i prompt dei tester ciechi contro le trappole già incontrate, PRIMA di spendere token.
 Uso: controlla_prompt.py <prompt.txt|input.jsonl> [...]   (un .jsonl stream-json: legge le parti di testo)
      controlla_prompt.py --prova                          (autoverifica)
-Esce 1 se c'è almeno un ERRORE. Gli AVVISI non bloccano. Trappole: skills/collaudo/references/trappole-prove-cieche.md
+Esce 1 se c'è almeno un ERRORE. Gli AVVISI non bloccano. Trappole: ../references/trappole-prove-cieche.md
 """
 import json, re, sys
 

@@ -71,7 +71,7 @@ Solo quando i gradini 0-3 sono puliti. Metodo, numero di tester, validità: skil
 1. **Prompt dalla scheda del gradino 0**: il COMPITO del tester sono le domande del cliente finale (le stesse che hai
    già verificato tu: il tester serve a vedere se un estraneo le trova e se si fida, non a scoprirle).
 2. **Prompt controllati** con lo script, sul testo **composto** come lo riceverà il tester:
-   `python3 ${CLAUDE_PLUGIN_ROOT}/scripts/controlla_prompt.py <prompt.txt|input.jsonl> …` → zero ERRORI.
+   `python3 <base>/scripts/controlla_prompt.py <prompt.txt|input.jsonl> …` → zero ERRORI.
    Poi leggi la lista a mano: `references/trappole-prove-cieche.md`.
 3. **Fumo**: la stessa procedura con 1 tester haiku, 10-15 turni, prompt minimo (apri, una schermata, dimmi il titolo,
    chiudi). Con Chrome: prima `list_connected_browsers` non vuoto. Verifica: risposta presente, schermate > 0,
@@ -102,4 +102,4 @@ Dopo ogni giro presenta all'utente, in poche righe e senza gergo:
 Gradini 0-2: solo il tuo contesto. Gradino 3: qualche % di sessione per le schermate guardate.
 
 ## Riferimenti
-`references/domande-cliente.md` · `references/trappole-prove-cieche.md` · `${CLAUDE_PLUGIN_ROOT}/scripts/controlla_prompt.py` (`--prova` = autoverifica)
+`references/domande-cliente.md` · `references/trappole-prove-cieche.md` · `<base>/scripts/controlla_prompt.py` (`--prova` = autoverifica). `<base>` = la «Base directory» di questa skill, indicata quando la skill si carica; gli script di `prova-cieca` stanno in `<base>/../prova-cieca/scripts/`.
