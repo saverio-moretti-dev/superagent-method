@@ -58,6 +58,9 @@ Without installing the plugin you can also link single skills as personal skills
 
 Il mio modo di lavorare con Claude Code, in un plugin. Al centro un **coordinatore** che non lavora: smista i compiti agli agenti, tiene il registro delle sessioni, dà i permessi e chiede all'utente solo per produzione, cancellazioni, invii, spese e cambi importanti. Intorno: passaggio di consegne fra sessioni (`/passaggio`, `/riparti`), conoscenze ad albero lette per livelli, processo a fasi (`generale`), collaudo a gradini (`collaudo`) e tester ciechi (`prova-cieca`), barra del consumo nel terminale, piano settimanale dei token elastico («token in scadenza: usarli»). Facoltativo: staffetta quotidiana col cloud per chi ha il computer offline di giorno. Installazione: i due comandi `/plugin` qui sopra.
 
+## Research
+The evidence behind the blind testers (LLM judge biases, simulated users, how to make an agent really blind in Claude Code, validity checklist, measured costs), with sources: [docs/ricerca.md](docs/ricerca.md) (Italian).
+
 ## Credits
 Built on published patterns, not invented from scratch: Anthropic's *orchestrator-workers* and *evaluator-optimizer* ([Building effective agents](https://www.anthropic.com/engineering/building-effective-agents)) and the lead-plus-subagents research setup ([multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system)); the controller, fresh implementer and bounded fix loop of [obra/superpowers](https://github.com/obra/superpowers) (MIT); the separate `claude -p --safe-mode` process per persona of [claude-persona](https://github.com/takechanman1228/claude-persona) (MIT). What is added here is the wiring: research saved as dated knowledge, a coordinator with permission levels, staged testing, and validity rules for blind testers.
 
