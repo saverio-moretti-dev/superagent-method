@@ -22,7 +22,7 @@ Argomenti: `$ARGUMENTS` = compito + (facoltativo) cartella delle conoscenze (def
 
 **Fase 2 — costruzione.** Solo dopo l'approvazione: l'agente `costruttore` elabora e costruisce. Valuta la consegna: prosegui o ripeti. Cicli di correzione: vedi sotto.
 
-**Fase 3 — prove cieche.** Quando sei soddisfatto della consegna, usa la skill `prova-cieca`: dimensiona i test su complessità e probabilità di errore, lancia i tester isolati, giudicane la validità. Un test **valido** e negativo fa ripartire il ciclo.
+**Fase 3 — prove.** Prima la skill `collaudo` (gradini economici: build/test, percorsi, Chrome e telefono); quando sono puliti, la skill `prova-cieca`: dimensiona i test su complessità e probabilità di errore, lancia i tester isolati, giudicane la validità. Un test **valido** e negativo fa ripartire il ciclo.
 
 **Consegna definitiva** all'umano: cosa è stato fatto, prove fatte (numero, esito, costo), limiti noti. Se la consegna è qualcosa che il mondo reale può giudicare, dillo (regola sotto).
 

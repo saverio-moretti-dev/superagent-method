@@ -8,3 +8,8 @@
   - Contesto in un vicolo cieco o bias → agente nuovo con brief aggiornato.
   - Terzo giro fallito → cambia approccio (modello più forte, piano diverso) o chiedi all'umano.
 - Ogni correzione è seguita da una nuova valutazione; mai rivalutare solo la parte corretta se tocca altre.
+
+## Criterio di «fatto» (indagine 2026-11-07: ~3/4 degli errori trovati dai ciechi erano trovabili prima)
+- **Domande del cliente finale**: prima di costruire, lista delle domande che un vero cliente si fa (prezzo totale, caparra, annullamento, chi è il titolare, cosa è incluso…); fatto = ogni domanda ha risposta nella consegna. Modello: `references/domande-cliente.md` della skill `collaudo`.
+- **Fatti incrociati**: un dato = una fonte sola, ed è uguale su ogni pagina, lingua e modulo (prezzi, date, nomi, orari). Controllarlo a programma, non a occhio.
+- **Fase 3 (prove) con la skill `collaudo`**: gradini dal più economico (build/test → percorsi → Chrome e telefono → prove cieche con fumo prima). I ciechi partono solo quando i gradini prima sono puliti.
