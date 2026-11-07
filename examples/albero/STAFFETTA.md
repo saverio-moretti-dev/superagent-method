@@ -12,6 +12,10 @@ Ritmo:
 3. **Dopo la fascia** (locale): pull delle repo toccate, lettura di FATTO DAL CLOUD, controllo degli esiti a rischio,
    lavori di PER STASERA.
 
+Routine giornaliera nel cloud: **sessione nuova a ogni giro** (non persistente, così il contesto non cresce), nessun
+connettore che il prompt non usa; ogni modifica che il cloud fa a questo file (stato di una riga, FATTO DAL CLOUD) va
+**verificata con `grep`** prima del commit: una sostituzione di testo può non avere effetto senza dare errore.
+
 Solo in locale, di solito: app del computer (posta, musica, browser dell'utente), telefono via cavo, build per il
 sistema operativo locale, file non pushati o ignorati da git, messaggi fra sessioni locali.
 

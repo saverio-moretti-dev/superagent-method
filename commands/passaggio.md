@@ -13,6 +13,7 @@ salvato e committato, nessun agente a metà di una scrittura); e sempre prima di
 **Dove**: `~/.claude/passaggi/<cartella>.md`, dove `<cartella>` = percorso della cartella di lavoro attuale con `/` e spazi
 sostituiti da `-` (es. `-Users-me-projects-shop.md`). Se il file esiste già, prima spostalo in
 `<cartella>.prec.md` (sovrascrivendo il `.prec` precedente). Crea la cartella se manca.
+Due sessioni nella stessa cartella condividono il nome della nota: **una sola alla volta** fa `/passaggio`.
 
 **Obiettivo della nota**: il prossimo agente deve lavorare bene come te **senza perdere niente** di ciò che l'utente ha
 detto, deciso o corretto. **La completezza vince sulla brevità** (utente, 26/10: «piuttosto con più token utilizzati, ma è

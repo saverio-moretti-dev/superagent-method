@@ -26,6 +26,11 @@ agenti non tocchino mai le stesse cose. Ogni **agente** lavora su un argomento, 
 - **Errori e soluzioni**: una riga al coordinatore, che li tiene in un registro unico.
 - **Sessioni visibili**: ogni agente in una sua scheda del terminale (`claude --bg -n NOME …`, poi `claude attach <id>`
   in una scheda nuova). Chiudere la scheda non ferma la sessione: prima `/passaggio`, poi lo stop esplicito, una alla volta.
+- **Coda lunga**: ogni agente riceve più voci già approvate e lavora di continuo; una riga al coordinatore per voce
+  chiusa, poi la successiva; si ferma solo per ciò che serve all'utente.
+- **Giri controllati**: i lavori a ripetizione si fermano a ogni giro; il coordinatore verifica a campione prima del via
+  al giro dopo.
+- **Una cartella, un agente**: due sessioni nella stessa cartella si pestano i piedi (file, note di passaggio, commit).
 - **L'utente può parlare direttamente a un agente**: l'ordine vale, l'agente lo riferisce al coordinatore.
 - Limiti: i messaggi fra sessioni funzionano solo sulla stessa macchina; i permessi sono un patto scritto, non un
   blocco tecnico, per questo il coordinatore controlla.
@@ -37,13 +42,15 @@ agenti non tocchino mai le stesse cose. Ogni **agente** lavora su un argomento, 
 | 2 | Le idee si valutano | una proposta dell'utente si controlla (senso, costo, rischi) prima di eseguirla; il parere si dice |
 | 3 | Ricerche mai ripetute | prima di cercare: `grep` in `RICERCHE.md`; dopo: una riga nuova |
 | 4 | Token: spendere bene | piano settimanale elastico (sotto); stima in % della barra partendo dal lavoro misurato più simile, poi si scrive il reale; **token in scadenza: usarli** |
-| 5 | Azioni irreversibili | cancellare, pubblicare, spendere: si chiede sempre (passa dal coordinatore) |
+| 5 | Azioni irreversibili | cancellare, pubblicare, spendere: si chiede sempre (passa dal coordinatore). Pubblicazioni (deploy, push su repo pubbliche): l'agente conferma «build pulita e ferma», il comando lo lancia l'utente con `!`; prima del push `grep` dei dati personali (un `.gitignore` aggiunto dopo non toglie un file già nei commit) |
 | 6 | Avvio a costo zero | nei file letti a ogni avvio (CLAUDE.md, MEMORY.md, hook, descrizioni di skill) solo puntatori di una riga; chi aggiunge righe dice il costo |
 | 7 | Passaggio di consegne | sopra ~200 k token di contesto, o prima di chiudere una sessione: `/passaggio` al primo momento sicuro, senza chiedere |
 | 8 | Non chiedere ciò che è deciso | obiettivo già dato = non si chiede «quando»; prima di una domanda si cerca nelle note e nelle decisioni |
 | 9 | Collaudo prima delle prove cieche | skill `collaudo` a fine costruzione; le prove cieche solo dopo |
 | 10 | Ogni numero ha la data | documento e disco discordano → ha ragione il disco, e la discordanza si scrive |
 | 11 | Caso simile, stesso procedimento | prima di progettare si cercano i piani già approvati e il procedimento della volta prima (bug e fix inclusi) |
+| 12 | Prima finito, poi nuovo | finché l'utente non dichiara chiuso un prodotto, niente lavori successivi su di esso (vendita, funzioni nuove) |
+| 13 | Valori nell'ordine | numeri e soglie si decidono prima del via e si scrivono nell'ordine, non si scelgono a metà lavoro |
 
 ### Regola 4 — il piano settimanale (esempio, da adattare)
 - La settimana si divide in **quote giornaliere indicative**, non in blocchi: più spazio nei giorni in cui si lavora
@@ -60,6 +67,9 @@ agenti non tocchino mai le stesse cose. Ogni **agente** lavora su un argomento, 
 - A fine lavoro: **prima sì/no** (è a posto o no), poi il resto, senza gergo.
 - Se serve un comando dell'utente: una riga corta da copiare con `!`, e cosa fa in parole semplici.
 - Un guasto si diagnostica da soli fino alla causa; all'utente si chiede **un** passo mirato.
+- Ogni messaggio del coordinatore finisce con **In sospeso**, diviso per sessione: per ogni voce cos'è, perché conta,
+  il consiglio e cosa rispondere. L'utente non risponde sempre subito: niente deve perdersi.
+- Messaggio breve e ambiguo dell'utente → si chiede a cosa si riferisce, non si indovina.
 
 ## Sequenza d'apertura (ogni agente, ogni sessione)
 1. Nota per il prossimo agente del proprio livello (`NOTA-PROSSIMO-AGENTE.md`) o il passaggio da `/riparti`.

@@ -17,7 +17,7 @@ The texts of the skills and commands are in Italian (the language I work in); th
 | **Status line** (`statusline/statusline-consumo.py`) + `/agenti` | 5-hour and weekly usage bars with reset times, context size with a plain warning, optional list of busy agents | you see when a session got too heavy and hand it off |
 
 ## Rules the template enforces
-Rule 0 (coordinator) plus: learn from every outcome and write it down; evaluate the user's ideas before executing them; never repeat research already logged; **spend tokens well** (an elastic weekly plan split into daily shares, leftovers roll over to the next day, and what is left before the weekly reset gets used, not wasted); ask before deleting, publishing or spending; keep startup files to one-line pointers; hand off above ~200k tokens; don't ask what is already decided; test before blind tests; every number has a date, and the disk wins over documents; for a similar case, reuse the procedure that worked last time.
+Rule 0 (coordinator) plus: learn from every outcome and write it down; evaluate the user's ideas before executing them; never repeat research already logged; **spend tokens well** (an elastic weekly plan split into daily shares, leftovers roll over to the next day, and what is left before the weekly reset gets used, not wasted); ask before deleting, publishing or spending; keep startup files to one-line pointers; hand off above ~200k tokens; don't ask what is already decided; test before blind tests; every number has a date, and the disk wins over documents; for a similar case, reuse the procedure that worked last time; finish a product before starting work on top of it; numbers and thresholds are fixed in the order, before work starts. Agents get a long queue of approved items and work continuously; repeated jobs stop after each round for a spot check; one folder, one agent.
 
 All rules are marked "to be revised": agents report errors and fixes to the coordinator, and the rules change from that log.
 
@@ -48,6 +48,7 @@ Without installing the plugin you can also link single skills as personal skills
 
 ## Limits
 - Messages between sessions work only for sessions on the same machine; when it is offline, the local coordinator does not answer.
+- Visible sessions: the first time a session opens in a folder, Claude Code asks to trust it, and a background session waits there; point at a terminal tab by its id, never "front window"; closing the view does not stop the session.
 - Permissions are a written agreement, not a technical lock: an agent can ignore them, which is why the coordinator checks risky work.
 - The blind testers still see the account email in their environment; the persona template tells them to ignore it; read the transcript to check they did not use it.
 - Claude testers are kinder than people: a passed blind test means "no serious defect found in N runs", not "it works". When the real world can judge the result, that judgement counts more.
