@@ -4,6 +4,9 @@ argument-hint: "[compito da passare — vuoto = compito attuale]"
 ---
 Prepara il passaggio di consegne. Dopo, l'utente farà `/clear` e il prossimo agente lancerà `/riparti`.
 
+**Quando, senza aspettare che lo chieda l'utente**: sopra ~200 k token di contesto, al primo momento sicuro (lavoro
+salvato e committato, nessun agente a metà di una scrittura); e sempre prima di chiudere una sessione.
+
 **Compito da passare**: $ARGUMENTS
 (se vuoto: il compito su cui stai lavorando adesso)
 
@@ -66,6 +69,8 @@ Regole di scrittura:
 Poi:
 1. Se il lavoro ha cambiato lo stato del progetto e la repo ha una sua nota per il prossimo agente / staffetta
    (vedi il suo `CLAUDE.md`), aggiorna anche quella in breve, come da regole della repo. Commit + push se è una repo git.
-2. **Controllo finale**: rileggi la lista dei messaggi dell'utente del giro di raccolta e spunta che ognuno sia coperto.
+2. Se c'è un coordinatore (regola 0 della hub): mandagli una riga (fatto / bloccato su cosa / cosa servirebbe dopo,
+   più il percorso della nota), così aggiorna il registro delle sessioni.
+3. **Controllo finale**: rileggi la lista dei messaggi dell'utente del giro di raccolta e spunta che ognuno sia coperto.
    Se uno manca, aggiungilo.
-3. Rispondi all'utente con **una riga**: percorso della nota, token stimati della nota, e «ora `/clear` e poi `/riparti`».
+4. Rispondi all'utente con **una riga**: percorso della nota, token stimati della nota, e «ora `/clear` e poi `/riparti`».
