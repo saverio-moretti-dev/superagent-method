@@ -21,7 +21,7 @@ interi se non serve. Comandi indipendenti nello stesso turno, in parallelo.
 2. `CLAUDE.md` della hub: le regole **per titolo**; il corpo si apre solo per la regola che un compito tocca.
 3. **`SESSIONI.md`**: chi lavora su cosa, permessi dati, errori segnalati. Confronta con `claude agents --json`:
    sessione nel registro ma non viva (o viceversa) → segnalalo.
-4. `NOTA-PROSSIMO-AGENTE.md`: solo le note in cima (max 3). Se c'è `STAFFETTA.md`: il blocco FATTO DAL CLOUD.
+4. `NOTA-PROSSIMO-AGENTE.md`: solo le note in cima (max 3). Se c'è `STAFFETTA.md`: i blocchi FATTO DAL CLOUD e PER STASERA.
 5. **Consumo**: `tail -1 ~/.claude/consumo/limiti.csv` (scritto dalla statusline del plugin) → 5h %, 7d %, ripristini
    (epoch → `date -r`). Confronta con la soglia cumulativa del giorno del piano settimanale (regola 4 della hub):
    indietro = margine da usare, avanti di molto = dillo.
@@ -39,10 +39,10 @@ interi se non serve. Comandi indipendenti nello stesso turno, in parallelo.
 
 ## C. Resoconto all'utente (conciso)
 - **Sessioni**: aperte, cosa toccano, ferme o bloccate (con lavoro in coda da assegnare).
-- **Stato** (hub + progetto se richiesto): fatto di recente, in corso.
+- **Stato** (hub + progetto se richiesto): fatto di recente, in corso; se c'è la staffetta, riga «Dal cloud oggi».
 - **Consumo**: 5h %, settimana % rispetto alla soglia del giorno, ripristini.
 - **In attesa / rimasto indietro / prossimi lavori con data**.
-- Chiudi con **«Cosa faccio?»** e 2-3 proposte in ordine di priorità (prima ciò che fa guadagnare). Poi fermati.
+- Chiudi con **«Cosa faccio?»** e 2-3 proposte in ordine di priorità (prima ciò che fa guadagnare); se c'è la staffetta e la coda di domani manca, «preparare OGGI AL CLOUD» è tra le proposte. Poi fermati.
 Massimo 10 righe. Il ruolo resta quello della regola 0: non esegui compiti, li smisti.
 
 Non scrivere su disco, non committare: questo comando legge e riferisce.
