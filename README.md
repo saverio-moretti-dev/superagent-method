@@ -44,6 +44,8 @@ Then:
 
 Handoff notes are saved in `~/.claude/passaggi/`.
 
+Without installing the plugin you can also link single skills as personal skills: scripts are referenced relative to each skill's folder, so a symlink works (`ln -s /path/to/superagent-method/skills/prova-cieca ~/.claude/skills/prova-cieca`; `collaudo` expects `prova-cieca` next to it).
+
 ## Limits
 - Messages between sessions work only for sessions on the same machine; when it is offline, the local coordinator does not answer.
 - Permissions are a written agreement, not a technical lock: an agent can ignore them, which is why the coordinator checks risky work.
@@ -55,6 +57,9 @@ Handoff notes are saved in `~/.claude/passaggi/`.
 ## Italiano
 
 Il mio modo di lavorare con Claude Code, in un plugin. Al centro un **coordinatore** che non lavora: smista i compiti agli agenti, tiene il registro delle sessioni, dà i permessi e chiede all'utente solo per produzione, cancellazioni, invii, spese e cambi importanti. Intorno: passaggio di consegne fra sessioni (`/passaggio`, `/riparti`), conoscenze ad albero lette per livelli, processo a fasi (`generale`), collaudo a gradini (`collaudo`) e tester ciechi (`prova-cieca`), barra del consumo nel terminale, piano settimanale dei token elastico («token in scadenza: usarli»). Facoltativo: staffetta quotidiana col cloud per chi ha il computer offline di giorno. Installazione: i due comandi `/plugin` qui sopra.
+
+## Credits
+Built on published patterns, not invented from scratch: Anthropic's *orchestrator-workers* and *evaluator-optimizer* ([Building effective agents](https://www.anthropic.com/engineering/building-effective-agents)) and the lead-plus-subagents research setup ([multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system)); the controller, fresh implementer and bounded fix loop of [obra/superpowers](https://github.com/obra/superpowers) (MIT); the separate `claude -p --safe-mode` process per persona of [claude-persona](https://github.com/takechanman1228/claude-persona) (MIT). What is added here is the wiring: research saved as dated knowledge, a coordinator with permission levels, staged testing, and validity rules for blind testers.
 
 ## License
 
