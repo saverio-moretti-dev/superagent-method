@@ -34,8 +34,8 @@ interi se non serve. Comandi indipendenti nello stesso turno, in parallelo.
 2. Nella cartella del progetto: `git status -sb`, `git log --oneline -5` → la sua nota per il prossimo agente → il suo
    `CLAUDE.md` (regole per titolo) → debiti e lavori aperti registrati. Conoscenze e audit si **cercano** quando servono,
    non si leggono.
-3. **Passaggio pendente**: se esiste `~/.claude/passaggi/<cartella-del-progetto>.md` (non `.letta`), dillo: c'è un compito
-   in corso → lì si usa `/riparti`.
+3. **Passaggio pendente**: `python3 "${CLAUDE_PLUGIN_ROOT}/tools/passaggi.py" elenco` mostra le note non lette per nome (chiave, nome, età): se c'è quella dell'agente del
+   progetto, dillo (c'è un compito in corso → lì si usa `/riparti`); le altre sono agenti fermi da dire all'utente.
 
 ## C. Resoconto all'utente (conciso)
 - **Sessioni**: aperte, cosa toccano, ferme o bloccate (con lavoro in coda da assegnare).
