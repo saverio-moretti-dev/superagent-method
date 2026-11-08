@@ -9,6 +9,7 @@ Indicazioni aggiuntive dell'utente: $ARGUMENTS
 1. **Leggi la nota**: `~/.claude/passaggi/<cartella>.md`, dove `<cartella>` = cartella di lavoro attuale con `/` e spazi
    sostituiti da `-`. Se non c'è, dillo in una riga e segui la normale sequenza d'avvio (nota di repo, `CLAUDE.md`, stato git).
    Se è più vecchia di 48 ore, avvisa: può essere superata.
+1-bis. **Agenda**: se la sessione ha un nome e c'è `agende/<NOME>.md` nella hub, leggila (§ 1-9) prima della nota: decisioni e permessi vincono sulla nota; la discordanza va in cronologia dell'agenda.
 2. **Contesto globale**: leggi solo i file della sezione «Contesto globale», nell'ordine e nelle sezioni indicate.
    Il `CLAUDE.md` della repo vale comunque e vince sulla nota.
 3. **Verifica lo stato sul disco** contro la sezione «Stato» (`git status`, `git log --oneline -5`, i file citati).

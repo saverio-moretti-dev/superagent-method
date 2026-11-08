@@ -46,3 +46,8 @@ interi se non serve. Comandi indipendenti nello stesso turno, in parallelo.
 Massimo 10 righe. Il ruolo resta quello della regola 0: non esegui compiti, li smisti.
 
 Non scrivere su disco, non committare: questo comando legge e riferisce.
+
+## Agende e allineamento (componenti fondamentali)
+- **Agende**: per ogni file di `agende/` della hub leggi le § 2-3 e l'ultima riga di cronologia; agente con voci in coda e fermo → resoconto. Agente senza agenda → bozza dal modello, completata INSIEME a lui.
+- **Allineamento a ogni ripresa**: se dall'ultima sessione del coordinatore sono passate più di 3 ore, o l'altra metà (locale/cloud) ha lavorato dopo, esegui subito il flusso di `/allinea` nei due sensi, compresa la coda di domani per il cloud. Non si propone, si fa.
+- **Sessioni in schede**: due finestre in tutto (coordinatore, agenti); ogni sessione nuova o riaperta è una scheda della finestra agenti.
