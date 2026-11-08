@@ -26,7 +26,9 @@ else
   MCP=(--no-chrome --allowedTools "WebSearch,WebFetch" --disallowedTools "mcp__*")
 fi
 rm -f "$OUT/INTERROTTO"; : > "$OUT/transcript.jsonl"
-claude -p --safe-mode \
+# ENABLE_CLAUDEAI_MCP_SERVERS=false: connettori claude.ai mai caricati. Oggi --safe-mode li esclude già (8/11/2026:
+# stessi server e stessi token con e senza, web e Chrome); resta come garanzia se --safe-mode cambia.
+ENABLE_CLAUDEAI_MCP_SERVERS=false claude -p --safe-mode \
   --tools "WebSearch,WebFetch" "${MCP[@]}" \
   --model "$MODEL" --max-turns "${CLI_TURNS:-$TURNS}" --no-session-persistence \
   --output-format stream-json --verbose < "$PROMPT" > "$OUT/transcript.jsonl" &
