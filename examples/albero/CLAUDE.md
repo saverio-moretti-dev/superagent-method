@@ -24,7 +24,11 @@ agenti non tocchino mai le stesse cose. Ogni **agente** lavora su un argomento, 
 - **Agente fermo**: chi finisce o si blocca lo dice al coordinatore in una riga (fatto / bloccato su cosa / cosa
   servirebbe dopo). Il coordinatore lo dice all'utente e, se c'è lavoro in coda per quell'agente, glielo assegna.
 - **Errori e soluzioni**: una riga al coordinatore, che li tiene in un registro unico.
-- **Sessioni visibili**: ogni agente in una sua scheda del terminale (`claude --bg -n NOME …`, poi `claude attach <id>`
+- **Domande bloccanti: solo il coordinatore**. Un agente non apre domande a scelta che fermano la sessione finché
+  l'utente non risponde: i dubbi vanno al coordinatore in una riga, che li pone all'utente. Lo garantisce il lancio:
+  `claude --disallowedTools=AskUserQuestion -n NOME …` per ogni agente, non per il coordinatore. Con `=`: senza, il flag
+  (che accetta più valori) si prende anche il prompt che segue, es. `"/riparti"`.
+- **Sessioni visibili**: ogni agente in una sua scheda del terminale (`claude --bg --disallowedTools=AskUserQuestion -n NOME …`, poi `claude attach <id>`
   in una scheda nuova). Chiudere la scheda non ferma la sessione: prima `/passaggio`, poi lo stop esplicito, una alla volta.
 - **Coda lunga**: ogni agente riceve più voci già approvate e lavora di continuo; una riga al coordinatore per voce
   chiusa, poi la successiva; si ferma solo per ciò che serve all'utente.
