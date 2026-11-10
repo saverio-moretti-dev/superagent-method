@@ -10,7 +10,10 @@ Notes live in ~/.claude/passaggi/ (override: env PASSAGGI_DIR).
 Commands (standard library only, zero tokens):
   nome [NAME]          print the key for this session; line 2 says where it came from
   elenco               notes not read yet: key, name in header, date, age
-  scrivi               rotate before writing: <KEY>.md -> <KEY>.prec.md (old .prec -> archivio/)
+  scrivi               rotate before writing: <KEY>.md -> <KEY>.prec.md (old .prec -> archivio/);
+                       prints the two header lines with the SYSTEM date/time, to copy as they are
+  timbra [KEY]         right after writing: puts the system date/time in the header ("scritta:" and the
+                       date of line 1). Agents wrote times from memory ("23:30" at 20:17): the clock decides
   leggi KEY            mark as read: <KEY>.md -> <KEY>.letta.md (old .letta -> archivio/)
   archivia [--fai]     move extra .letta*/.prec* files to archivio/AAAA-MM/ (dry run without --fai)
   migra MAP [--fai]    rename notes listed in MAP (lines "old-file-name -> NEWKEY"), dry run without --fai
@@ -54,6 +57,66 @@ def session_name():
     if not isinstance(n, str) or not n.strip():
         return None, "sessione senza nome"
     return norm(n), f"sessione {d.get('sessionId', '?')[:8]}"
+
+
+def session_id():
+    pid = os.environ.get("CLAUDE_PID")
+    try:
+        return json.loads((Path.home() / ".claude" / "sessions" / f"{pid}.json").read_text()).get("sessionId", "")[:8]
+    except Exception:
+        return ""
+
+
+STAMP = "%Y-%m-%d %H:%M"
+WRITTEN = re.compile(r"(scritta:\s*)(\d{4}-\d{2}-\d{2}[ T]\d{1,2}:\d{2})")
+
+
+def stamp_note(path, when):
+    """Put `when` in 'scritta:' (added to the nome: line if missing) and in line 1's date. Returns (old, new)."""
+    lines = path.read_text(encoding="utf-8").split("\n")
+    new = when.strftime(STAMP)
+    old = ""
+    hit = False
+    for i, line in enumerate(lines[:6]):
+        m = WRITTEN.search(line)
+        if m:
+            old = m.group(2)
+            lines[i] = WRITTEN.sub(lambda mm: mm.group(1) + new, line, count=1)
+            hit = True
+            break
+    if not hit:
+        for i, line in enumerate(lines[:6]):
+            if re.search(r"\bnome:", line):
+                lines[i] = re.sub(r"\s*·\s*scritta:[^·]*", "", line).rstrip() + f" · scritta: {new}"
+                hit = True
+                break
+    if not hit:
+        lines.insert(1, f"scritta: {new}")
+    if lines and lines[0].startswith("# PASSAGGIO"):
+        lines[0] = re.sub(r"(# PASSAGGIO\s*—\s*)\d{4}-\d{2}-\d{2}[ T]\d{1,2}:\d{2}", lambda mm: mm.group(1) + new,
+                          lines[0], count=1)
+    path.write_text("\n".join(lines), encoding="utf-8")
+    return old, new
+
+
+def written_drift(path):
+    """Minutes between the header's 'scritta:' and the file's mtime (None if no header time)."""
+    m = WRITTEN.search(header_field_raw(path))
+    if not m:
+        return None
+    try:
+        w = dt.datetime.strptime(m.group(2).replace("T", " "), STAMP)
+    except ValueError:
+        return None
+    return abs((dt.datetime.fromtimestamp(path.stat().st_mtime) - w).total_seconds()) / 60
+
+
+def header_field_raw(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            return "".join(next(fh, "") for _ in range(6))
+    except OSError:
+        return ""
 
 
 def key(arg=None):
@@ -133,6 +196,9 @@ def cmd_elenco(_):
         m = dt.datetime.fromtimestamp(p.stat().st_mtime)
         age = (NOW - m).total_seconds() / 3600
         st = header_field(p, "stato")
+        d = written_drift(p)
+        if d is not None and d > 15:
+            st = (st + "; " if st else "") + f"ora intestazione lontana {d:.0f} min dal file"
         print(f"{p.name[:-3]:<60} nome: {header_name(p):<22} {m:%d/%m %H:%M}  {age:5.0f} h"
               + (f"  [{st}]" if st else ""))
     extra = len(list(DIR.glob("*.md"))) - len(rows)
@@ -150,6 +216,21 @@ def cmd_scrivi(args):
         cur.rename(prec)
         print(f"{cur.name} -> {prec.name}")
     print(f"scrivi la nota in: {cur}")
+    now = NOW.strftime(STAMP)
+    sid = session_id() or "<id>"
+    print("intestazione (ora di sistema, copiala così):")
+    print(f"# PASSAGGIO — {now} — <repo/cartella>")
+    print(f"nome: {k} · cartella: {os.getcwd()} · sessione: {sid} · scritta: {now}")
+    print(f"appena scritta: python3 {Path(__file__).resolve()} timbra {k}")
+
+
+def cmd_timbra(args):
+    k, _ = key(args[0] if args else None)
+    cur = DIR / f"{k}.md"
+    if not cur.exists():
+        sys.exit(f"{cur.name} non esiste")
+    old, new = stamp_note(cur, dt.datetime.now())
+    print(f"{cur.name}: scritta {old or '(mancava)'} -> {new}")
 
 
 def cmd_leggi(args):
@@ -161,6 +242,10 @@ def cmd_leggi(args):
         sys.exit(f"{cur.name} non esiste")
     if letta.exists():
         print(f"archiviata {archive(letta)}")
+    d = written_drift(cur)
+    if d is not None and d > 15:
+        print(f"ATTENZIONE: ora 'scritta:' nell'intestazione lontana {d:.0f} min dal file "
+              f"({dt.datetime.fromtimestamp(cur.stat().st_mtime):%Y-%m-%d %H:%M}): vale l'ora del file")
     cur.rename(letta)
     print(f"{cur.name} -> {letta.name}")
 
@@ -209,7 +294,7 @@ def cmd_migra(args):
 
 
 def main():
-    cmds = {"nome": cmd_nome, "elenco": cmd_elenco, "scrivi": cmd_scrivi, "leggi": cmd_leggi,
+    cmds = {"nome": cmd_nome, "elenco": cmd_elenco, "scrivi": cmd_scrivi, "timbra": cmd_timbra, "leggi": cmd_leggi,
             "archivia": cmd_archivia, "migra": cmd_migra}
     if len(sys.argv) < 2 or sys.argv[1] not in cmds:
         print(__doc__)

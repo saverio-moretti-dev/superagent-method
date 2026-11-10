@@ -13,6 +13,9 @@ salvato e committato, nessun agente a metà di una scrittura); e sempre prima di
 **Dove — la nota segue il NOME della sessione** (`claude -n NOME`), non la cartella: così due agenti nella stessa cartella,
 o un agente che cambia cartella, non trovano mai la nota di un altro. Lancia `python3 "${CLAUDE_PLUGIN_ROOT}/tools/passaggi.py" scrivi`: sposta la nota vecchia in
 `.prec` (la `.prec` precedente va in `archivio/`, mai cancellata) e stampa il percorso, `~/.claude/passaggi/<NOME>.md`.
+Stampa anche le **due righe d'intestazione con data e ora di sistema**: copiale così come sono, mai un'ora a memoria.
+**Appena scritta la nota**: `python3 "${CLAUDE_PLUGIN_ROOT}/tools/passaggi.py" timbra` rimette l'ora di sistema in `scritta:` (e nella data
+della riga 1). Senza, `leggi` ed `elenco` avvisano quando l'ora dell'intestazione è lontana da quella del file.
 Solo se la sessione non ha nome: `dir-<cartella>.md`, e lo dice. Mai scrivere a mano un altro percorso, mai toccare note di altri nomi.
 (Installato a mano, senza plugin: al posto di `${CLAUDE_PLUGIN_ROOT}` metti la cartella della tua copia di superagent-method.)
 
@@ -40,7 +43,7 @@ Regole di scrittura:
 **Schema fisso** (sezioni vuote: ometti):
 ```
 # PASSAGGIO — <data ora> — <repo/cartella>
-nome: <NOME> · cartella: <cwd> · sessione: <primi 8 caratteri dell'id> · scritta: <AAAA-MM-GG HH:MM>
+nome: <NOME> · cartella: <cwd> · sessione: <primi 8 caratteri dell'id> · scritta: <AAAA-MM-GG HH:MM, da `scrivi`/`timbra`>
 ## Compito
 <1-3 righe: cosa va fatto e il criterio di "finito">
 ## Contesto globale (da leggere, in ordine)
