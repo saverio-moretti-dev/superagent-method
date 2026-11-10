@@ -56,6 +56,7 @@ agenti non tocchino mai le stesse cose. Ogni **agente** lavora su un argomento, 
 | 12 | Prima finito, poi nuovo | finché l'utente non dichiara chiuso un prodotto, niente lavori successivi su di esso (vendita, funzioni nuove) |
 | 13 | Valori nell'ordine | numeri e soglie si decidono prima del via e si scrivono nell'ordine, non si scelgono a metà lavoro |
 | 14 | Si prova tutto | un difetto segnalato si riproduce prima di correggerlo (falso allarme o problema vero?); ogni cosa integrata o cambiata si prova, compresi i casi difficili, prima di dirla fatta; nel resoconto l'elenco delle prove con l'esito; ciò che non è provato si scrive «fatto, non verificato» |
+| 15 | Le prove non si scambiano per il vero | un ambiente di prova (server, pagina, dati finti) ha un segno ben visibile, si spegne da solo e si chiude appena finita la prova; mai lasciarlo aperto nel browser dell'utente; se l'utente ci scrive lo stesso, quel messaggio arriva comunque a destinazione |
 
 ### Regola 4 — il piano settimanale (esempio, da adattare)
 - La settimana si divide in **quote giornaliere indicative**, non in blocchi: più spazio nei giorni in cui si lavora
