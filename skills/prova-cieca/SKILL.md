@@ -34,7 +34,7 @@ Per siti e pagine web, dove conta **come si vede e come si usa** (telefono, bott
 - `resize_window` sposta la finestra vera dell'utente: avvisalo.
 - **Il telefono non si prova così**: sul Mac Chrome non scende sotto ~500 px. Con 390×844 la pagina è rimasta larga 596-858 px (prova del 2/11). Per il telefono servono schermate headless (Chrome `--headless` con l'emulazione del dispositivo), da dare nel prompt.
 - Nel prompt: «apri le pagine con navigate, guarda con le schermate, chiudi la scheda alla fine». Il telefono si dà con schermate headless nel prompt, non con `resize_window` (vedi sopra).
-- Controllo: `check_blind.py <out> --siti host1,host2`. Diventa SOSPETTO se il tester apre pagine fuori da quegli host o usa uno strumento vietato. I tentativi rifiutati vengono elencati, ma senza dati ricevuti non invalidano la prova.
+- Controllo: `check_blind.py <out> --siti host1,host2`. Host **senza porta** (`127.0.0.1`, non `127.0.0.1:8799`): con la porta un sito ammesso esce SOSPETTO (10/11/2026). Diventa SOSPETTO se il tester apre pagine fuori da quegli host o usa uno strumento vietato. I tentativi rifiutati vengono elencati, ma senza dati ricevuti non invalidano la prova.
 - **Schermate > 0 obbligatorie**: un tester col browser che non ha fatto nessuna schermata non ha guardato il sito → prova non valida, si rifà. Prima del giro: browser collegato e un tester di fumo (haiku) che apre una pagina e fa una schermata.
 - Le ricerche web restano consentite. Una prova solo col browser è valida anche senza ricerche, se la consegna è il sito.
 
