@@ -46,3 +46,9 @@ rilanciata alle 19:53 con --disallowedTools SendMessage AskUserQuestion CronCrea
 |---|---|---|
 | riproduzione: testo nella casella + /clear (vecchio script) | 1 | FALLITO come sul SUP: messaggio 'rit\n/clear', sid invariato |
 | fix, avanzo «rit⏎» nella casella + riavvia.py --sup (19:54:05) | 1 | OK in 8 s: sid 3f5c3164 → ddc61a39, vecchia senza messaggi, nuova con /clear e /riparti comando |
+| avanzo multi-riga, cursore in mezzo, modo shell «! ls -la» (19:54:53) | 1 | OK in 8 s: ddc61a39 → ce20e0f2; «!ls» non eseguito, vecchia senza messaggi |
+| sessione occupata (messaggio fra sessioni appena arrivato), senza --attendi (19:55:24) | 1 | RIFIUTATO uscita 2, niente scritto (avanzo «rit» rimasto intatto) |
+| messaggio iniettato + --attendi 3 (19:55:42) | 1 | ATTESA finché occupata, poi OK alle 19:56:02: ce20e0f2 → 3dc286c2 |
+| «utente» scrive nella casella subito dopo il segno (19:56:27) | 1 | segno non solo → secondo blocco di pulizia → OK: 3dc286c2 → 6d639c8d |
+| «utente» scrive fra la lettura dello schermo e /clear (19:56:47): il guasto delle 19:40 rifatto dal vivo | 1 | tentativo 1: «QZXRIAVVIO/clear» messaggio normale, rilevato (CLEAR NON RIUSCITO); /riparti NON mandato; tentativo 2 OK 6d639c8d → 69febf06, poi /riparti |
+| dopo il caso sopra: il blocco del comando passa da 3 a 8 coppie Ctrl-K/Ctrl-U (cancella anche quel testo) | — | test unitari 38/38 verdi |

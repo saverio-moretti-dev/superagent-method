@@ -333,7 +333,7 @@ def comando(tty, testo, prova):
     if not pulisci(tty, prova):
         registra(f"{tty_corto(tty)}: casella non svuotata (segno non visto sullo schermo): {testo!r} NON mandato")
         return False
-    return scrivi(tty, testo, prova, svuota=3)
+    return scrivi(tty, testo, prova, svuota=8)  # 8 coppie: cancella anche ciò che qualcuno scrive fra lettura e invio
 
 
 def voci_di(sid):

@@ -489,7 +489,7 @@ class Casella(Base):
     def test_34_blocchi_corti(self):
         """Oltre ~60 caratteri un do script diventa incolla (misurato 11/11 19:47): i blocchi restano corti."""
         self.assertLessEqual(len(self.r.SVUOTA * 8 + self.r.SEGNO + "\\"), 40)
-        self.assertLessEqual(len(self.r.SVUOTA * 3 + "/riparti superagente"), 40)
+        self.assertLessEqual(len(self.r.SVUOTA * 8 + "/riparti superagente"), 40)
 
     def test_35_variabili_prova(self):
         with mock.patch.dict(os.environ, {"RIAVVIA_BLOCCO_S": "0", "RIAVVIA_NOTA_MAX_S": "30"}):
@@ -497,6 +497,47 @@ class Casella(Base):
         self.assertEqual((r.BLOCCO_S, r.NOTA_MAX_S), (0, 30))
         self.assertEqual((self.r.BLOCCO_S, self.r.NOTA_MAX_S), (300, 600))
         self.assertEqual(self.lancia("PROVA-X", TTY, "--sup"), 1)
+
+
+class Agente(Base):
+    """Ramo agente: /exit, poi «cd … && claude -n NOME … "/riparti NOME"», con verifica della sessione nuova."""
+
+    def setUp(self):
+        super().setUp()
+        self.stato = "idle"
+        self.nota(fa_s=60, nome="PROVA-A")
+        self.trascrivi(FINE, fa_s=60)
+        self.r.claude_su = lambda tty: self.vivo
+        self.vivo = True
+
+    def scrivi_agente(self, parte):
+        def scrivi(tty, testo, prova, svuota=0):
+            self.inviati.append((self.r.tty_corto(tty), testo, self.ora.t))
+            if testo == "/exit":
+                self.vivo = False
+            elif testo.startswith("cd ") and parte:
+                self.sid = "bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee"
+                self.trascrivi([], fa_s=0)
+                self.trascrivi_aggiungi([{"type": "user", "message": {"content": "<command-name>/riparti</command-name>"}}])
+            return True
+        self.r.scrivi = scrivi
+
+    def test_36_agente_verificato(self):
+        self.scrivi_agente(True)
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 0)
+        self.assertEqual([t for _, t, _ in self.inviati][0], "/exit")
+        self.assertIn("RIAVVIATO PROVA-A ttys002: verificato", self.log())
+
+    def test_37_agente_non_ripartito(self):
+        self.scrivi_agente(False)
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 5)
+        self.assertIn("FALLITO PROVA-A", self.log())
+
+    def test_38_agente_casella_sporca_niente_exit(self):
+        self.scrivi_agente(True)
+        self.r.pulisci = lambda tty, prova: False
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 2)
+        self.assertEqual(self.inviati, [])
 
 
 if __name__ == "__main__":
