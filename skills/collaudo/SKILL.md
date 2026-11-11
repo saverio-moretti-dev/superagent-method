@@ -66,6 +66,27 @@ Costo: pochi minuti, zero token esterni. È il gradino che evita più errori.
 - **App**: l'app stessa (simulatore o dispositivo) sul percorso principale; schermate guardate.
 - Nessuna consegna si mostra all'utente prima di questo gradino.
 
+## Gradino 3-bis — note dell'utente sulla pagina (quando l'utente gira il sito)
+L'utente gira le pagine vere e appunta dove qualcosa non va; tu applichi, provi e rendi conto nota per nota.
+Se il progetto ha una procedura locale più dettagliata per questo passo, aprila prima e seguila.
+1. **Strumento per le note** (una volta): un'estensione del browser che, con un clic sul punto della pagina, salva una
+   nota con pagina, testo, posizione e selettore CSS dell'elemento, e la manda alla coda dei messaggi del coordinatore
+   (riserva: copia e incolla). L'installazione da `chrome://extensions` la fa l'utente: un agente nel browser non ci entra.
+   La politica di sicurezza (CSP) del sito non si allenta per far passare le note.
+2. **Leggere** ogni nota intera dalla coda, non dal riassunto.
+3. **Applicare** nota per nota: ritaglio del punto (schermata sul selettore); cercare **tutti** i posti dove la nota
+   vale (varianti, lingue, altre pagine o siti con lo stesso componente: non dare niente per scontato); le parole
+   dettate dall'utente si copiano testuali; una domanda di prodotto va al coordinatore col parere tecnico e intanto si
+   continua col resto; un cambio di struttura passa dalle skill grafiche e dalla prova a 390 px.
+4. **Collaudare**: build di tutto ciò che è toccato (anche gli altri siti se cambia uno stile comune); test (vecchio →
+   si aggiorna il test, difetto vero → si corregge il codice); nessuna pagina più larga del telefono a 390 e 320 px,
+   da rifare dopo ogni cambio di testo nei bottoni; schermate prima e dopo guardate davvero; posizioni misurate con
+   `getBoundingClientRect`, non stimate su una schermata rimpicciolita; impronte (md5) dei file della build.
+5. **Rendere conto** nell'ESITO: tabella `# · nota testuale · cosa ho fatto · dove si vede · schermata`, una riga per
+   nota, verificata sulla pagina costruita; ciò che non si è potuto fare si scrive, con il perché.
+6. **Pubblicare**: controllo separato da un agente diffidente che non modifica nulla → APPROVABILE → il coordinatore
+   chiede il sì all'utente e pubblica → online: risposta 200 su ogni pagina e confronto con le impronte.
+
 ## Gradino 4 — prove cieche (costa; fumo obbligatorio)
 Solo quando i gradini 0-3 sono puliti. Metodo, numero di tester, validità: skill `prova-cieca`. In più:
 1. **Prompt dalla scheda del gradino 0**: il COMPITO del tester sono le domande del cliente finale (le stesse che hai
