@@ -1,8 +1,8 @@
 ---
-description: Scrive la nota di passaggio per il prossimo agente (contesto minimo e completo), poi si fa /clear e /riparti
+description: Scrive la nota di passaggio per il prossimo agente (contesto minimo e completo), poi il riavvio (/clear + /riparti) lo fa il coordinatore o l'agente stesso, mai l'utente
 argument-hint: "[compito da passare — vuoto = compito attuale]"
 ---
-Prepara il passaggio di consegne. Dopo, l'utente farà `/clear` e il prossimo agente lancerà `/riparti`.
+Prepara il passaggio di consegne. Dopo, la sessione si riavvia (`/clear` + `/riparti`): **non lo chiedi mai all'utente** (utente 12/11: «non deve mai più ricapitare»). Il SUPERAGENTE/coordinatore si riavvia da solo; gli altri agenti li riavvia il coordinatore.
 
 **Quando, senza aspettare che lo chieda l'utente**: sopra ~200 k token di contesto, al primo momento sicuro (lavoro
 salvato e committato, nessun agente a metà di una scrittura); e sempre prima di chiudere una sessione.
@@ -80,4 +80,8 @@ Poi:
    più il percorso della nota), così aggiorna il registro delle sessioni.
 3. **Controllo finale**: rileggi la lista dei messaggi dell'utente del giro di raccolta e spunta che ognuno sia coperto.
    Se uno manca, aggiungilo.
-4. Rispondi all'utente con **una riga**: percorso della nota, token stimati della nota, e «ora `/clear` e poi `/riparti`».
+4. **Riavvio — VIETATO scrivere all'utente «/clear», «ora /clear e poi /riparti» o simili** (utente 11-12/11, errore ripetuto 4 volte):
+   - **Se sei il SUPERAGENTE/coordinatore**: ti riavvii da solo, subito, nella stessa risposta: `python3 "${CLAUDE_PLUGIN_ROOT}/tools/riavvia.py" SUPERAGENTE /dev/ttysNNN --sup` (tty della tua scheda: da `contesti.py`, non `$(tty)` della shell di Bash)
+     (prima hai già avvisato gli agenti vivi). All'utente al massimo una riga: «SUP si riavvia, i tuoi messaggi restano in coda».
+   - **Se c'è un coordinatore**: il messaggio del punto 2/3 basta, ti riavvia lui. All'utente: «nota pronta, il coordinatore mi riavvia».
+   - **Solo se non c'è nessun coordinatore** (sessione isolata): una riga con percorso della nota e token stimati; il riavvio lo chiedi solo in quel caso.
