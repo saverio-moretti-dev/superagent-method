@@ -34,7 +34,7 @@ BLOCCO_S = 5 * 60
 QUIETE_S = 20          # trascrizione ferma da almeno tanto per credere al «turno finito»
 FINE_TURNO = ("turn_duration", "stop_hook_summary")
 SOLO_DATI = {"last-prompt", "tools-used", "bridge-session", "file-history-snapshot", "summary", "custom-title",
-             "ai-title", "agent-name"}  # voci che non sono lavoro; ogni altro tipo (anche sconosciuto) conta come lavoro
+             "ai-title", "agent-name", "mode", "session-owner", "cost-state", "atis-latch"}  # voci che non sono lavoro; ogni altro tipo (anche sconosciuto) conta come lavoro
 
 APPLESCRIPT = [  # testo e tty passati come argomenti: niente testo dentro il codice AppleScript
     "on run argv",
@@ -90,29 +90,58 @@ def tty_di(pid):
         return ""
 
 
-def turno_finito(sid):
-    """(True, perché) se la trascrizione della sessione dice che il turno è finito e non è più successo niente."""
-    f = glob.glob(os.path.join(CASA, ".claude", "projects", "*", f"{sid}.jsonl")) if sid else []
-    if not f:
-        return False, "trascrizione non trovata"
-    ferma = time.time() - os.path.getmtime(f[0])
-    if ferma < QUIETE_S:
-        return False, f"trascrizione scritta {int(ferma)} s fa"
-    with open(f[0], "rb") as h:
-        h.seek(max(0, os.path.getsize(f[0]) - 262144))
-        righe = h.read().decode("utf-8", "replace").splitlines()
-    for r in reversed(righe):
-        try:
-            d = json.loads(r)
-        except ValueError:
-            continue
+def _locale(d):
+    """Voce «utente» che è solo il segno di un comando locale (/clear, /model…): non apre un turno."""
+    c = (d.get("message") or {}).get("content") if isinstance(d.get("message"), dict) else None
+    if isinstance(c, list):
+        c = " ".join(b.get("text", "") for b in c if isinstance(b, dict))
+    return isinstance(c, str) and any(k in c for k in ("<local-command-caveat>", "<command-name>", "<local-command-stdout>"))
+
+
+def stato_voci(voci, dopo_clear=False):
+    """UNICA regola (11/11): (True, perché) se dalle voci della trascrizione nessun turno è in corso.
+    Dal fondo, saltando i soli metadati: fine turno (turn_duration/stop_hook_summary) o comando locale finito
+    (system local_command, con le sue voci «utente» di comando) = ferma; qualunque altra voce, anche sconosciuta
+    (user, assistant, queue-operation, attachment, api-request…, scheduled_task_fire del cron) = al lavoro.
+    Nessuna voce: ferma solo subito dopo un /clear (sessione nuova vuota), altrimenti non dimostrabile."""
+    for d in reversed(voci):
         t = d.get("type")
         if t in SOLO_DATI:
             continue
         if t == "system" and d.get("subtype") in FINE_TURNO:
-            return True, f"turno finito, trascrizione ferma da {int(ferma)} s"
+            return True, "turno finito"
+        if t == "system" and d.get("subtype") == "local_command":
+            return True, "comando locale finito (es. /clear), nessun turno aperto"
+        if t == "user" and _locale(d):
+            continue
         return False, f"ultima voce della trascrizione: {t} {d.get('subtype') or ''}".strip()
-    return False, "nessuna voce leggibile"
+    return (True, "trascrizione vuota dopo /clear") if dopo_clear else (False, "nessuna voce leggibile")
+
+
+def trascrizione(sid):
+    f = glob.glob(os.path.join(CASA, ".claude", "projects", "*", f"{sid}.jsonl")) if sid else []
+    return f[0] if f else None
+
+
+def turno_finito(sid, dopo_clear=False):
+    """stato_voci sulla coda della trascrizione, solo se il file è fermo da QUIETE_S."""
+    f = trascrizione(sid)
+    if not f:
+        return (True, "trascrizione non ancora creata dopo /clear") if dopo_clear else (False, "trascrizione non trovata")
+    ferma = time.time() - os.path.getmtime(f)
+    if ferma < QUIETE_S:
+        return False, f"trascrizione scritta {int(ferma)} s fa"
+    with open(f, "rb") as h:
+        h.seek(max(0, os.path.getsize(f) - 262144))
+        righe = h.read().decode("utf-8", "replace").splitlines()
+    voci = []
+    for r in righe:
+        try:
+            voci.append(json.loads(r))
+        except ValueError:
+            continue
+    ok, perche = stato_voci(voci, dopo_clear)
+    return ok, f"{perche}, ferma da {int(ferma)} s" if ok else perche
 
 
 def g_ferma(nome, tty, dopo_clear=False):
@@ -126,11 +155,9 @@ def g_ferma(nome, tty, dopo_clear=False):
     for x in su_tty:
         if x.get("status") == "idle":
             continue
-        ok, perche = turno_finito(x.get("sessionId"))
-        if dopo_clear and (perche in ("trascrizione non trovata", "nessuna voce leggibile") or perche.endswith("local_command")):
-            continue  # sessione appena pulita: ultima voce = il /clear stesso (system local_command, 11/11 17:53),
-            #           nessun turno aperto; il comando in sottofondo la tiene «busy»
-        if not ok:  # busy vero (o non dimostrabile): niente invio
+        # busy: claude agents lo dice anche da ferma se un comando in sottofondo è vivo → decide la trascrizione
+        ok, perche = turno_finito(x.get("sessionId"), dopo_clear)
+        if not ok:
             return f"{nome} sta lavorando (status {x.get('status')}; {perche}): niente invio"
     return None
 
