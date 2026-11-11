@@ -1,0 +1,3 @@
+riavvia.py provato: /Users/saveriomoretti/Desktop/saverio-moretti-dev/superagent-method/tools/riavvia.py
+C8 · NON VALIDO: la sessione di prova non è diventata ferma
+C8 · FALLISCE · rc=1 | --sup solo con SUPERAGENTE

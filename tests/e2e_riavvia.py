@@ -19,8 +19,9 @@ RIAVVIA = os.environ.get("RIAVVIA", os.path.join(QUI, "..", "tools", "riavvia.py
 CASA = os.path.expanduser("~")
 PASSAGGI = os.path.join(CASA, ".claude", "passaggi")
 PROGETTI = os.path.join(CASA, ".claude", "projects")
+BASE = os.environ.get("E2E_BASE", "/private/tmp/prova-riavvio")
 VIVI_VIETATI = {"ttys001", "ttys002", "ttys003", "ttys025"}
-ENV_CORTO = {"RIAVVIA_BLOCCO_S": "1", "RIAVVIA_NOTA_MAX_S": "600"}
+ENV_CORTO = {"RIAVVIA_BLOCCO_S": "1", "RIAVVIA_NOTA_MAX_S": "600", "RIAVVIA_PROVA": "1"}
 
 
 def osa(*righe, args=()):
@@ -84,7 +85,9 @@ def inietta(tty, testo, invio=False):
 class Sessione:
     def __init__(self, caso, primo="rispondi solo: ok"):
         self.nome = f"PROVA-PUB-{caso}"
-        self.dir = tempfile.mkdtemp(prefix=f"prova-pub-{caso.lower()}-")
+        # cartella FISSA sotto quella già fidata (SUP 11/11): una cartella nuova fa uscire «ti fidi della cartella?»
+        self.dir = os.path.join(BASE, "pub")
+        os.makedirs(self.dir, exist_ok=True)
         cmd = f"cd '{self.dir}' && claude --safe-mode --model haiku --tools '' -n {self.nome} '{primo}'"
         out, err = osa('tell application "Terminal"', "set t to do script (item 1 of argv)",
                        'return (tty of t) & "|" & (id of (first window whose tabs contains t))', "end tell", args=(cmd,))
@@ -221,7 +224,9 @@ if __name__ == "__main__":
         try:
             s = Sessione(c)
             if not s.aspetta_ferma():
-                print(f"{c} · NON VALIDO: la sessione di prova non è diventata ferma"); continue
+                schermo, _ = osa('tell application "Terminal"', f"return contents of selected tab of (first window whose id is {s.win})", "end tell")
+                v = voce(s.nome)
+                print(f"{c} · NON VALIDO: sessione di prova non ferma · agents={v and v.get('status')} trascr={len(trascrizioni(s.dir))} · schermo: {' | '.join(l for l in schermo.splitlines() if l.strip())[-400:]}"); continue
             ok, det = CASI[c](s)
             print(f"{c} · {'PASSA' if ok else 'FALLISCE'} · {det}", flush=True)
         except Exception as e:  # noqa: BLE001
