@@ -12,13 +12,18 @@ Uso:
             --prova         controlla e dice cosa farebbe, senza scrivere niente nella scheda
 
 Guardie (tutte, ricontrollate subito prima di ogni invio):
-  a. la nota ~/.claude/passaggi/NOME.md esiste ed è di meno di 10 minuti fa;
-  b. la sessione NOME è ferma (claude agents --json: status idle) e il suo processo sta proprio su TTY;
+  a. la nota ~/.claude/passaggi/NOME.md esiste ed è stata scritta al più 10 minuti prima del LANCIO dello script
+     (con --attendi l'età si misura sulla partenza, non su adesso: 11/11 17:43 la nota «scadeva» durante l'attesa);
+  b. la sessione NOME è ferma e il suo processo sta proprio su TTY. Ferma = status idle in claude agents --json,
+     OPPURE status busy ma la trascrizione dice turno finito (ultima voce = fine turno, file fermo da 20 s):
+     claude agents dà «busy» per tutto il tempo in cui un comando in sottofondo è vivo (misurato 11/11 17:46-17:50:
+     SUP fermo, http.server 4322 lanciato prima di un /clear → busy per 4 min; ogni riavvio del SUP rifiutato);
   c. al massimo un riavvio per scheda ogni 5 minuti (file di blocco ~/.claude/consumo/riavvii/<tty>.json);
   d. nessun altro riavvio in attesa per la stessa scheda (ps: altri riavvia.py o il vecchio riavvia.sh).
 Una guardia rossa = niente invio, motivo stampato e scritto in ~/.claude/consumo/riavvii.log (uscita 2).
+Con --attendi ogni CAMBIO di guardia rossa si scrive nel log con l'ora (ATTESA …), così si vede perché non è partito.
 """
-import json, os, subprocess, sys, time
+import glob, json, os, subprocess, sys, time
 
 CASA = os.path.expanduser("~")
 PASSAGGI = os.path.join(CASA, ".claude", "passaggi")
@@ -26,6 +31,10 @@ BLOCCHI = os.path.join(CASA, ".claude", "consumo", "riavvii")
 LOG = os.path.join(CASA, ".claude", "consumo", "riavvii.log")
 NOTA_MAX_S = 10 * 60
 BLOCCO_S = 5 * 60
+QUIETE_S = 20          # trascrizione ferma da almeno tanto per credere al «turno finito»
+FINE_TURNO = ("turn_duration", "stop_hook_summary")
+SOLO_DATI = {"last-prompt", "tools-used", "bridge-session", "file-history-snapshot", "summary", "custom-title",
+             "ai-title", "agent-name"}  # voci che non sono lavoro; ogni altro tipo (anche sconosciuto) conta come lavoro
 
 APPLESCRIPT = [  # testo e tty passati come argomenti: niente testo dentro il codice AppleScript
     "on run argv",
@@ -58,12 +67,12 @@ def tty_corto(t):
     return t.replace("/dev/", "").strip()
 
 
-def g_nota(nome):
+def g_nota(nome, t0=None):
     p = os.path.join(PASSAGGI, f"{nome}.md")
     if not os.path.exists(p):
         return f"nota {p} assente (prima /passaggio)"
-    eta = time.time() - os.path.getmtime(p)
-    return None if eta <= NOTA_MAX_S else f"nota {nome}.md vecchia di {int(eta // 60)} min (serve < 10)"
+    eta = (time.time() if t0 is None else t0) - os.path.getmtime(p)
+    return None if eta <= NOTA_MAX_S else f"nota {nome}.md scritta {int(eta // 60)} min prima del lancio (serve < 10)"
 
 
 def sessione(nome):
@@ -81,7 +90,32 @@ def tty_di(pid):
         return ""
 
 
-def g_ferma(nome, tty):
+def turno_finito(sid):
+    """(True, perché) se la trascrizione della sessione dice che il turno è finito e non è più successo niente."""
+    f = glob.glob(os.path.join(CASA, ".claude", "projects", "*", f"{sid}.jsonl")) if sid else []
+    if not f:
+        return False, "trascrizione non trovata"
+    ferma = time.time() - os.path.getmtime(f[0])
+    if ferma < QUIETE_S:
+        return False, f"trascrizione scritta {int(ferma)} s fa"
+    with open(f[0], "rb") as h:
+        h.seek(max(0, os.path.getsize(f[0]) - 262144))
+        righe = h.read().decode("utf-8", "replace").splitlines()
+    for r in reversed(righe):
+        try:
+            d = json.loads(r)
+        except ValueError:
+            continue
+        t = d.get("type")
+        if t in SOLO_DATI:
+            continue
+        if t == "system" and d.get("subtype") in FINE_TURNO:
+            return True, f"turno finito, trascrizione ferma da {int(ferma)} s"
+        return False, f"ultima voce della trascrizione: {t} {d.get('subtype') or ''}".strip()
+    return False, "nessuna voce leggibile"
+
+
+def g_ferma(nome, tty, dopo_clear=False):
     s = sessione(nome)
     if isinstance(s, Exception):
         return f"claude agents non risponde ({s})"
@@ -89,8 +123,16 @@ def g_ferma(nome, tty):
     if not su_tty:
         dove = ", ".join(tty_di(x["pid"]) or "?" for x in s) or "nessuna"
         return f"nessuna sessione {nome} su {tty_corto(tty)} (trovate su: {dove})"
-    busy = [x for x in su_tty if x.get("status") != "idle"]
-    return f"{nome} sta lavorando (status {busy[0].get('status')}): niente invio" if busy else None
+    for x in su_tty:
+        if x.get("status") == "idle":
+            continue
+        ok, perche = turno_finito(x.get("sessionId"))
+        if dopo_clear and (perche in ("trascrizione non trovata", "nessuna voce leggibile") or perche.endswith("local_command")):
+            continue  # sessione appena pulita: ultima voce = il /clear stesso (system local_command, 11/11 17:53),
+            #           nessun turno aperto; il comando in sottofondo la tiene «busy»
+        if not ok:  # busy vero (o non dimostrabile): niente invio
+            return f"{nome} sta lavorando (status {x.get('status')}; {perche}): niente invio"
+    return None
 
 
 def g_blocco(tty):
@@ -158,8 +200,8 @@ def superato(nome, tty, sid0, t0):
     return None
 
 
-def guardie(nome, tty, *, nota=True):
-    for g in ([lambda: g_nota(nome)] if nota else []) + [lambda: g_ferma(nome, tty), lambda: g_blocco(tty), lambda: g_altri(tty)]:
+def guardie(nome, tty, *, nota=True, t0=None):
+    for g in ([lambda: g_nota(nome, t0)] if nota else []) + [lambda: g_ferma(nome, tty), lambda: g_blocco(tty), lambda: g_altri(tty)]:
         motivo = g()
         if motivo:
             return motivo
@@ -210,8 +252,13 @@ def main(a):
     t0 = time.time()
     fine = t0 + attendi * 60
     sid0 = sid_su(nome, tty) if attendi else None
+    prima = None
     while True:
-        motivo = guardie(nome, tty)
+        motivo = guardie(nome, tty, t0=t0)
+        tipo = "".join(c for c in (motivo or "") if not c.isdigit())  # «scritta 8 s fa» e «19 s fa» = stessa guardia
+        if attendi and tipo != prima:  # ogni cambio di guardia nel log, con l'ora
+            registra(f"ATTESA {nome} {tty_corto(tty)}: {motivo or 'guardie verdi'}")
+            prima = tipo
         if not motivo:
             break
         oltre = attendi and superato(nome, tty, sid0, t0)
@@ -228,9 +275,14 @@ def main(a):
     if sup:
         if not scrivi(tty, "/clear", prova):
             esci("scheda non trovata: niente riavvio", 2)
-        time.sleep(0 if prova else 6)
-        # dopo /clear la sessione è vuota e ferma: ricontrollo solo che sia ferma e ancora lì
-        motivo = None if prova else g_ferma(nome, tty)
+        # dopo /clear la sessione è vuota e ferma: ricontrollo solo che sia ferma e ancora lì (fino a 30 s:
+        # la trascrizione del /clear deve restare ferma QUIETE_S prima di crederle)
+        motivo = None
+        for _ in range(0 if prova else 6):
+            time.sleep(6)
+            motivo = g_ferma(nome, tty, dopo_clear=True)
+            if not motivo:
+                break
         if motivo:
             registra(f"DOPO /clear {nome}: {motivo}")
             esci(f"/clear mandato, ma «/riparti» no: {motivo}", 2)
