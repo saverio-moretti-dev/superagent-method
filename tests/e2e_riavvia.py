@@ -12,7 +12,7 @@ Alla fine chiude la sessione e la finestra, cancella la nota finta. Mai tty di s
 Uso:  python3 tests/e2e_riavvia.py [C1 C2 …]      (senza argomenti: tutti)
       RIAVVIA=<percorso di riavvia.py da provare>   (predefinito: tools/riavvia.py di questa repo)
 """
-import fcntl, glob, json, os, re, subprocess, sys, tempfile, termios, threading, time
+import glob, json, os, re, subprocess, sys, threading, time
 
 QUI = os.path.dirname(os.path.abspath(__file__))
 RIAVVIA = os.environ.get("RIAVVIA", os.path.join(QUI, "..", "tools", "riavvia.py"))
@@ -73,13 +73,16 @@ def prompt_utente(p):
 
 
 def inietta(tty, testo, invio=False):
-    """Testo nella casella della sessione come se l'utente lo digitasse (TIOCSTI sulla tty della scheda)."""
-    fd = os.open("/dev/" + tty, os.O_RDWR | os.O_NOCTTY)
-    try:
-        for ch in (testo + ("\r" if invio else "")).encode():
-            fcntl.ioctl(fd, termios.TIOCSTI, bytes([ch]))
-    finally:
-        os.close(fd)
+    """Testo nella casella della sessione come se l'utente lo digitasse: `do script` di Terminal nella scheda di quel tty
+    (TIOCSTI su macOS dà EPERM: la tty non è il terminale di controllo; System Events ruberebbe il fuoco all'utente).
+    do script aggiunge sempre l'invio: senza invio si chiude con «\\», che in claude diventa a capo e non manda,
+    quindi nella casella resta «testo» + riga vuota (variante a più righe del caso reale «rit/clear»)."""
+    out, err = osa('tell application "Terminal"', "repeat with w in windows", "repeat with t in tabs of w",
+                   "if tty of t is (item 1 of argv) then", "do script (item 2 of argv) in t", 'return "ok"',
+                   "end if", "end repeat", "end repeat", "end tell", 'return "scheda non trovata"',
+                   args=("/dev/" + tty, testo if invio else testo + "\\"))
+    if out != "ok":
+        raise RuntimeError(f"inietta su {tty}: {out or err}")
 
 
 class Sessione:
@@ -87,8 +90,15 @@ class Sessione:
         self.nome = f"PROVA-PUB-{caso}"
         # cartella FISSA sotto quella già fidata (SUP 11/11): una cartella nuova fa uscire «ti fidi della cartella?»
         self.dir = os.path.join(BASE, "pub")
-        os.makedirs(self.dir, exist_ok=True)
-        cmd = f"cd '{self.dir}' && claude --safe-mode --model haiku --tools '' -n {self.nome} '{primo}'"
+        os.makedirs(os.path.join(self.dir, ".claude", "commands"), exist_ok=True)
+        # /riparti finto: riavvia.py verifica la voce <command-name>/riparti</command-name>, che nasce solo se il comando
+        # esiste. --safe-mode blocca anche i comandi di cartella e --plugin-dir: --setting-sources project carica il
+        # comando di cartella senza hook, plugin e impostazioni dell'utente (provato 11/11: «ripartito prova» + voce comando).
+        with open(os.path.join(self.dir, ".claude", "commands", "riparti.md"), "w") as f:
+            f.write("---\ndescription: riparti finto per tests/e2e_riavvia.py\n---\nRispondi solo: ripartito $ARGUMENTS\n")
+        # trascrizioni già nella cartella fissa (altri casi, altre versioni): fuori da ogni misura di questo caso
+        self.pre = set(trascrizioni(self.dir))
+        cmd = f"cd '{self.dir}' && claude --setting-sources project --permission-mode default --model haiku --tools '' -n {self.nome} '{primo}'"
         out, err = osa('tell application "Terminal"', "set t to do script (item 1 of argv)",
                        'return (tty of t) & "|" & (id of (first window whose tabs contains t))', "end tell", args=(cmd,))
         if "|" not in out:
@@ -96,11 +106,15 @@ class Sessione:
         self.tty, self.win = out.split("|")[0].replace("/dev/", ""), out.split("|")[1]
         assert self.tty not in VIVI_VIETATI, self.tty
 
+    def mie(self):
+        """trascrizioni di questa sessione (nate dopo l'apertura), non quelle già nella cartella fissa."""
+        return {k: v for k, v in trascrizioni(self.dir).items() if k not in self.pre}
+
     def aspetta_ferma(self, max_s=120):
         fine = time.time() + max_s
         while time.time() < fine:
             v = voce(self.nome)
-            if v and v.get("status") == "idle" and trascrizioni(self.dir):
+            if v and v.get("status") == "idle" and self.mie():
                 return True
             time.sleep(3)
         return False
@@ -122,20 +136,61 @@ class Sessione:
         return r.returncode, (r.stdout + r.stderr).strip()
 
     def chiudi(self):
-        subprocess.run(["pkill", "-f", f"-n {self.nome}( |$)"], capture_output=True)
-        for _ in range(10):
-            if not voce(self.nome):
-                break
-            time.sleep(1)
-        osa('tell application "Terminal"', f"close (every window whose id is {self.win}) saving no", "end tell")
+        chiudi_prova(self.nome, self.tty, self.win)
         for p in glob.glob(os.path.join(PASSAGGI, f"{self.nome}*.md")):
             os.remove(p)
+
+
+def claude_su(tty):
+    """[(pid, comando)] dei processi claude sul tty (ps, non claude agents: conta anche chi sta uscendo)."""
+    out = subprocess.run(["ps", "-t", tty, "-o", "pid=,command="], capture_output=True, text=True).stdout
+    return [(int(l.split(None, 1)[0]), l.split(None, 1)[1]) for l in out.splitlines()
+            if len(l.split(None, 1)) == 2 and re.search(r"(^|/)claude( |$)", l.split(None, 1)[1])]
+
+
+def schermo(win):
+    out, _ = osa('tell application "Terminal"', f"return contents of selected tab of (first window whose id is {win})", "end tell")
+    return out
+
+
+def dialogo(win):
+    """True se sullo schermo della prova c'è un dialogo di claude (scelta con Invio), non la casella normale."""
+    t = schermo(win)
+    return any(k in t for k in ("Enter to continue", "Esc to cancel", "Enter to confirm", "Enter to select"))
+
+
+def chiudi_prova(nome, tty, win):
+    """Regola SUP 11/11 (l'utente vedeva finestre con «conferma di chiusura»): /exit nella sessione, attesa che sul tty
+    non resti nessun processo claude, solo allora close … saving no. Dopo 10 s ancora viva: kill del SOLO pid PROVA-PUB."""
+    assert nome.startswith("PROVA-PUB-") and tty not in VIVI_VIETATI, (nome, tty)
+    if dialogo(win):  # 11/11: con un dialogo aperto (/auto-mode-setup) l'invio di /exit premerebbe «Continue»
+        print(f"  {nome}: dialogo aperto sullo schermo, niente /exit: kill del solo pid di prova", flush=True)
+    else:
+        try:
+            inietta(tty, "\x0b\x15" * 8 + "/exit", invio=True)  # Ctrl-K/Ctrl-U: casella vuota prima di /exit
+        except RuntimeError:
+            pass
+    for _ in range(10):
+        if not claude_su(tty):
+            break
+        time.sleep(1)
+    for pid, cmd in claude_su(tty):
+        if re.search(rf"-n {re.escape(nome)}( |$)", cmd):
+            os.kill(pid, 15)
+    for _ in range(5):
+        if not claude_su(tty):
+            break
+        time.sleep(1)
+    rimasti = claude_su(tty)
+    if rimasti:  # mai chiudere una finestra con claude vivo dentro: comparirebbe la conferma all'utente
+        raise RuntimeError(f"{nome}: claude ancora vivo su {tty} {rimasti}, finestra {win} NON chiusa")
+    osa('tell application "Terminal"', f"close (every window whose id is {win}) saving no", "end tell")
 
 
 def misura(s, prima):
     """(svuotato, dettagli): trascrizione nuova + nessun «…/clear» entrato come prompt nella vecchia."""
     time.sleep(8)
-    dopo = trascrizioni(s.dir)
+    dopo = s.mie()
     nuove = [k for k in dopo if k not in prima]
     sporchi = [t for k, p in prima.items() for t in prompt_utente(p) if "/clear" in t and "<command-name>" not in t]
     riparti_nuova = any("/riparti" in t for k in nuove for t in prompt_utente(dopo[k]))
@@ -144,7 +199,7 @@ def misura(s, prima):
 
 # ---------- casi ----------
 def c1(s):
-    s.nota(); prima = trascrizioni(s.dir)
+    s.nota(); prima = s.mie()
     rc, out = s.riavvia()
     ok, det = misura(s, prima)
     return ok and rc == 0, f"rc={rc} {det} | {out[-160:]}"
@@ -152,7 +207,7 @@ def c1(s):
 
 def c2(s):
     """testo lasciato nella casella prima del /clear (il caso reale «rit/clear»)."""
-    s.nota(); prima = trascrizioni(s.dir)
+    s.nota(); prima = s.mie()
     inietta(s.tty, "rit"); time.sleep(1)
     rc, out = s.riavvia()
     ok, det = misura(s, prima)
@@ -165,7 +220,7 @@ def misura_sporco(prima):
 
 def c3(s):
     """prompt che arriva nello stesso istante del /clear (cron / messaggio)."""
-    s.nota(); prima = trascrizioni(s.dir)
+    s.nota(); prima = s.mie()
     th = threading.Thread(target=lambda: (time.sleep(0.3), inietta(s.tty, "sveglia cron: rispondi ok", invio=True)))
     th.start(); rc, out = s.riavvia(); th.join()
     ok, det = misura(s, prima)
@@ -175,15 +230,15 @@ def c3(s):
 def c4(s):
     """sessione busy (turno lungo in corso): niente svuotamento."""
     s.nota(); inietta(s.tty, "scrivi una poesia di 60 righe sul mare, lentamente", invio=True); time.sleep(4)
-    prima = trascrizioni(s.dir)
+    prima = s.mie()
     rc, out = s.riavvia()
-    dopo = trascrizioni(s.dir)
+    dopo = s.mie()
     return rc == 2 and set(dopo) == set(prima), f"rc={rc} nuove={len(set(dopo) - set(prima))} | {out[-160:]}"
 
 
 def c5(s):
     """messaggio in arrivo durante l'attesa (prompt a metà --attendi)."""
-    s.nota(); prima = trascrizioni(s.dir)
+    s.nota(); prima = s.mie()
     th = threading.Thread(target=lambda: (time.sleep(5), inietta(s.tty, "messaggio da un'altra sessione: rispondi ok", invio=True)))
     th.start(); rc, out = s.riavvia(attendi=3); th.join()
     ok, det = misura(s, prima)
@@ -194,7 +249,7 @@ def c6(s):
     """10 riavvii di fila sulla stessa scheda (blocco ridotto a 1 s)."""
     esiti = []
     for i in range(10):
-        s.nota(); prima = trascrizioni(s.dir)
+        s.nota(); prima = s.mie()
         rc, out = s.riavvia(attendi=2)
         ok, det = misura(s, prima)
         esiti.append(ok and rc == 0)
@@ -203,15 +258,15 @@ def c6(s):
 
 
 def c7(s):
-    s.nota(eta_s=3600); prima = trascrizioni(s.dir)
+    s.nota(eta_s=3600); prima = s.mie()
     rc, out = s.riavvia()
-    return rc == 2 and set(trascrizioni(s.dir)) == set(prima), f"rc={rc} | {out[-160:]}"
+    return rc == 2 and set(s.mie()) == set(prima), f"rc={rc} | {out[-160:]}"
 
 
 def c8(s):
-    prima = trascrizioni(s.dir)
+    prima = s.mie()
     rc, out = s.riavvia()
-    return rc == 2 and set(trascrizioni(s.dir)) == set(prima), f"rc={rc} | {out[-160:]}"
+    return rc == 2 and set(s.mie()) == set(prima), f"rc={rc} | {out[-160:]}"
 
 
 CASI = {"C1": c1, "C2": c2, "C3": c3, "C4": c4, "C5": c5, "C6": c6, "C7": c7, "C8": c8}
@@ -226,7 +281,9 @@ if __name__ == "__main__":
             if not s.aspetta_ferma():
                 schermo, _ = osa('tell application "Terminal"', f"return contents of selected tab of (first window whose id is {s.win})", "end tell")
                 v = voce(s.nome)
-                print(f"{c} · NON VALIDO: sessione di prova non ferma · agents={v and v.get('status')} trascr={len(trascrizioni(s.dir))} · schermo: {' | '.join(l for l in schermo.splitlines() if l.strip())[-400:]}"); continue
+                print(f"{c} · NON VALIDO: sessione di prova non ferma · agents={v and v.get('status')} trascr={len(s.mie())} · schermo: {' | '.join(l for l in schermo.splitlines() if l.strip())[-400:]}"); continue
+            if dialogo(s.win):
+                print(f"{c} · NON VALIDO: dialogo aperto sulla sessione di prova prima del riavvio · {' | '.join(l.strip() for l in schermo(s.win).splitlines() if l.strip())[-300:]}", flush=True); continue
             ok, det = CASI[c](s)
             print(f"{c} · {'PASSA' if ok else 'FALLISCE'} · {det}", flush=True)
         except Exception as e:  # noqa: BLE001

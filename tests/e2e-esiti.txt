@@ -1,3 +1,33 @@
-riavvia.py provato: /Users/saveriomoretti/Desktop/saverio-moretti-dev/superagent-method/tools/riavvia.py
-C8 · NON VALIDO: la sessione di prova non è diventata ferma
-C8 · FALLISCE · rc=1 | --sup solo con SUPERAGENTE
+Esiti tests/e2e_riavvia.py — tester indipendente PUBBLICO — 2026-11-11 sera
+Misura: trascrizioni (sessione nuova + nessun prompt con «/clear» che non sia comando), non il log.
+Sessioni di prova: claude --setting-sources project --permission-mode default --model haiku --tools '' -n PROVA-PUB-<caso>
+in /private/tmp/prova-riavvio/pub, con /riparti finto di cartella (.claude/commands/riparti.md).
+
+RIPRODUZIONE — b9ee7f8 (copia con sola guardia nome allentata + BLOCCO_S=1)
+C2 · FALLISCE · rc=0, contesto NON svuotato, prompt sporco 'rit\n/clear'  = difetto riprodotto
+
+VERSIONE METODO — d4a860d (riavvia.py = a3f2f0a)
+C8 nota assente                         · PASSA · rc=2 niente invio
+C1 riavvio pulito                       · PASSA · rc=0 verificato, /riparti nella trascrizione nuova
+C2 «rit» lasciato nella casella         · PASSA · rc=0 verificato, nessun prompt sporco
+C3 prompt «cron» 0,3 s dopo il lancio   · PASSA · rc=0 verificato, nessun prompt sporco
+C4 sessione al lavoro (turno lungo)     · PASSA · rc=2 niente invio, nessuna trascrizione nuova
+C5 messaggio durante --attendi          · PASSA · rc=0 verificato, nessun prompt sporco
+C7 nota vecchia 60 min                  · PASSA · rc=2 niente invio
+C6 10 riavvii di fila (blocco 1 s)      · PASSA · 10/10 svuotati e verificati
+
+GIRI NON VALIDI (scartati, colpa della prova, non di riavvia.py)
+- giro 1 su a3f2f0a: misura leggeva anche la trascrizione della riproduzione (stessa cartella) → 'rit\n/clear' ovunque;
+  --safe-mode non carica comandi → /riparti mai «visto» (rc=5). Corretto: s.mie(), --setting-sources project + /riparti finto.
+- primo giro d4a860d: senza impostazioni utente, permissionMode auto → dialogo /auto-mode-setup; riavvia.py giustamente
+  rc=4 (casella non letta, /clear NON mandato). Corretto: --permission-mode default + guardia dialogo().
+  ~/.claude/settings.json verificato intatto (ultima modifica 19:24).
+
+CORREZIONI ALLO STRUMENTO
+- TIOCSTI = EPERM su macOS → iniezione con do script nella scheda (senza invio: testo + «\»).
+- pkill -f "-n …" non uccideva niente (pattern letto come opzione) → chiudi_prova(): /exit, attesa nessun claude sul tty,
+  kill del solo pid PROVA-PUB dopo 10 s, finestra chiusa solo senza claude vivo (regola SUP); niente /exit se c'è un dialogo.
+- AppleScript elenca ancora per qualche secondo finestre chiuse (visible=false, tty sparito).
+
+DA SAPERE
+- Login claude: «this sign-in ends between 2026-11-12 and 2026-11-15» → claude auth login prima, o i riavvii senza persona si fermano.
