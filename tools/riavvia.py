@@ -138,6 +138,26 @@ def g_altri(tty):
     return None
 
 
+def sid_su(nome, tty):
+    """Id della sessione NOME su quel tty (None se non c'è o claude agents non risponde)."""
+    s = sessione(nome)
+    if isinstance(s, Exception):
+        return None
+    return next((x.get("sessionId") for x in s if tty_di(x["pid"]) == tty_corto(tty)), None)
+
+
+def superato(nome, tty, sid0, t0):
+    """L'attesa non serve più: la nota è già stata letta da un /riparti dopo la partenza (NOME.letta.md più nuova)
+    o su quel tty gira un'altra sessione NOME. Senza, un'attesa vecchia resta viva fino alla scadenza."""
+    letta = os.path.join(PASSAGGI, f"{nome}.letta.md")
+    if not os.path.exists(os.path.join(PASSAGGI, f"{nome}.md")) and os.path.exists(letta) and os.path.getmtime(letta) > t0:
+        return f"nota {nome}.md già letta dopo la partenza (riavvio fatto da altri)"
+    sid = sid_su(nome, tty)
+    if sid0 and sid and sid != sid0:
+        return f"su {tty_corto(tty)} gira già un'altra sessione {nome}"
+    return None
+
+
 def guardie(nome, tty, *, nota=True):
     for g in ([lambda: g_nota(nome)] if nota else []) + [lambda: g_ferma(nome, tty), lambda: g_blocco(tty), lambda: g_altri(tty)]:
         motivo = g()
@@ -187,11 +207,17 @@ def main(a):
     if sup and nome != "SUPERAGENTE":
         esci("--sup solo con SUPERAGENTE", 1)
 
-    fine = time.time() + attendi * 60
+    t0 = time.time()
+    fine = t0 + attendi * 60
+    sid0 = sid_su(nome, tty) if attendi else None
     while True:
         motivo = guardie(nome, tty)
         if not motivo:
             break
+        oltre = attendi and superato(nome, tty, sid0, t0)
+        if oltre:
+            registra(f"SUPERATO {nome} {tty_corto(tty)}: {oltre}")
+            esci(f"NIENTE RIAVVIO di {nome}: {oltre}", 3)
         if time.time() >= fine:
             registra(f"RIFIUTATO {nome} {tty_corto(tty)}: {motivo}")
             esci(f"NIENTE RIAVVIO di {nome}: {motivo}", 2)
