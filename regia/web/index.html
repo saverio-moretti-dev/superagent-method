@@ -31,7 +31,7 @@
         </select>
         <button id="riordina" class="secondario" type="button" title="Le righe da sole non si muovono (per non spostarti quella sotto il mouse): questo le rimette nell'ordine scelto. Col pallino ● l'ordine è cambiato.">Riordina</button>
         <label class="spunta" title="Le sessioni ferme o in attesa restano sopra anche con l'ordine a mano"><input type="checkbox" id="fermi-in-cima" checked> Ferme in cima</label>
-        <button id="notifiche" class="secondario" type="button" hidden aria-pressed="false" title="Clic per accendere o spegnere: avviso di macOS quando una sessione si ferma o il SUP risponde">Avvisi macOS: spenti</button>
+        <button id="notifiche" class="secondario" type="button" hidden aria-pressed="false" title="Clic per accendere o spegnere: avviso di macOS solo quando il SUP ti scrive nella sua chat">Avvisi macOS: spenti</button>
         <button id="inizio" class="primario" type="button" title="Manda al SUP: fai fare /passaggio a chi ne ha bisogno, allineati col cloud, fammi il riepilogo, aggiorna l'app">Inizio lavori: riepilogo dal SUP</button>
       </div>
     </div>
@@ -52,6 +52,12 @@
       </div>
       <p class="ascolto" id="sup-ascolto" data-ok="?"></p>
       <p class="avviso pausa" id="sup-riavvio" role="status" hidden></p>
+      <div class="al-sup-azioni">
+        <button class="apri-term term-sup" type="button" data-term="SUPERAGENTE" title="Porta in primo piano la finestra del Terminale del superagente">
+          <svg class="ico" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4.5 6.5l2 1.5-2 1.5M8 10h3.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Terminale del SUP</span>
+        </button>
+      </div>
       <form class="modulo" id="al-sup-modulo">
         <textarea id="al-sup-testo" maxlength="4000" rows="7" enterkeyhint="send" aria-labelledby="al-sup-titolo" placeholder="Scrivi direttamente al SUP, non a una sessione… (Invio manda, Maiusc+Invio va a capo)" title="Invio manda · Maiusc+Invio va a capo"></textarea>
       </form>
@@ -111,7 +117,7 @@
     </div>
     <div class="dettaglio" hidden>
       <div class="contesto">
-        <p><span class="etichetta">Di cosa si occupa</span> <span class="c-occupa"></span></p>
+        <p><span class="etichetta c-occupa-etichetta">Di cosa si occupa</span> <span class="c-occupa"></span></p>
         <p><span class="etichetta">A che punto è</span> <span class="c-punto"></span></p>
       </div>
       <div class="col col-info">

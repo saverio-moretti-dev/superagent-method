@@ -93,7 +93,8 @@ def trascrizione(sid):
         if tipo == "attachment" and (d.get("attachment") or {}).get("type") == "queued_command":
             testi_in.append(str(d["attachment"].get("prompt") or ""))
         m = d.get("message") if isinstance(d.get("message"), dict) else None
-        if tipo == "user" and m and not d.get("isMeta"):
+        # i messaggi fra sessioni ora arrivano con isMeta=true e origin.kind="peer": vanno tenuti
+        if tipo == "user" and m and (not d.get("isMeta") or (d.get("origin") or {}).get("kind") == "peer"):
             c = m.get("content")
             if isinstance(c, str):
                 testi_in.append(c)
@@ -159,6 +160,42 @@ def chat(nome, sid):
         else:
             unite.append(v)
     return {"nome": nome, "voci": unite[-MAX_VOCI:]}
+
+
+FILO_SUP_MAX = 30
+
+
+def firma_sup(sid):
+    """ETag del filo unico del SUP: trascrizione del SUP + file dei messaggi (solo stat, nessuna lettura)."""
+    return firma(sid or "00000000").replace('"c', '"f', 1)
+
+
+def filo_sup(sid):
+    """Filo unico del SUP. Solo le voci che NON sono già nel filo del SUP, in ordine di tempo:
+      tu → NOME     coda.jsonl con sessione ≠ SUP (scritte nel filo di una sessione), con lo stato
+      SUP → NOME    risposte.jsonl con sessione ≠ SUP (risposte del SUP nel filo di una sessione)
+      NOME → SUP    messaggi degli agenti al SUP: dalla SOLA trascrizione del SUP (cross-session «in»)
+    Le trascrizioni degli altri agenti non si leggono (costo): i loro testi restano nella chat della sessione."""
+    richieste = {}
+    try:
+        with open(os.path.join(DATI, "richieste.json"), encoding="utf-8") as f:
+            richieste = json.load(f)
+    except (OSError, ValueError):
+        pass
+    voci = [dict(v, chi="agente") for v in trascrizione(sid) if v["chi"] == "in"] if sid else []
+    for r in unisci(_jsonl(os.path.join(DATI, "coda.jsonl")) + [dict(r, attesa=True) for r in trattenute(DATI)]):
+        nome = str(r.get("sessione", "")).upper()
+        if nome and nome != "SUP":
+            s = richieste.get(r.get("id"), {})
+            voci.append({"ora": r.get("ora", ""), "chi": "tu-s", "sessione": nome, "testo": _taglia(r.get("testo")), "id": r.get("id"),
+                         "stato": "attesa" if r.get("attesa") else s.get("stato", "nuova"), "ora_stato": s.get("ora"), "storia": s.get("storia", []),
+                         "a": s.get("a"), "prima": r.get("prima", []), "modificata": r.get("modificata"), "mod_vista": s.get("mod_vista")})
+    for r in _jsonl(os.path.join(DATI, "risposte.jsonl")):
+        nome = str(r.get("sessione", "")).upper()
+        if nome and nome != "SUP":
+            voci.append({"ora": r.get("ora", ""), "chi": "sup-s", "sessione": nome, "testo": _taglia(r.get("testo"))})
+    voci.sort(key=lambda v: v["ora"])
+    return {"voci": voci[-FILO_SUP_MAX:]}
 
 
 if __name__ == "__main__":

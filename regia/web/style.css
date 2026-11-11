@@ -177,6 +177,21 @@ main { max-width: 1440px; margin: 0 auto; padding: 24px 32px 48px; }
 .riga[data-stato="ferma"] .punto { background: var(--ferma); }
 .riga[data-stato="in attesa"] .punto { background: var(--attesa); box-shadow: 0 0 0 3px color-mix(in srgb, var(--attesa) 22%, transparent); }
 @keyframes battito { 50% { opacity: .35; } }
+/* in pausa: segno di pausa al posto del pallino, testo in tono tenue ma leggibile (contrasto ≥4.5:1, niente opacità) */
+.riga[data-stato="in pausa"] .punto, .scheda-s[data-stato="in pausa"] .punto {
+  display: inline-flex; justify-content: space-between; border-radius: 0; background: none; color: var(--tenue);
+}
+.riga[data-stato="in pausa"] .punto::before, .riga[data-stato="in pausa"] .punto::after,
+.scheda-s[data-stato="in pausa"] .punto::before, .scheda-s[data-stato="in pausa"] .punto::after {
+  content: ""; width: 3px; height: 100%; border-radius: 1px; background: currentColor;
+}
+.riga[data-stato="in pausa"] .vecchia { color: inherit; }
+.riga[data-stato="in pausa"]:not(.aperta) .nome { color: var(--tenue); font-weight: 550; }
+.riga[data-stato="in pausa"]:not(.aperta) .attivita .nuovo { color: var(--tenue); }
+.riga[data-stato="in pausa"] .meta .st { color: var(--tenue); }
+.scheda-s[data-stato="in pausa"] { color: var(--tenue); }
+#sospeso-lista li.in-pausa { color: var(--tenue); list-style: none; }
+#sospeso-lista li.in-pausa a { color: inherit; text-decoration-color: currentColor; }
 .nome { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pallino-nuovo { width: 7px; height: 7px; border-radius: 50%; background: var(--accento); justify-self: start; }
 .meta { grid-column: 2 / -1; color: var(--tenue); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -426,4 +441,19 @@ body[data-vista="token"] .vista-sessioni { display: none !important; }
 .apri-term:hover { background: color-mix(in srgb, var(--attesa) 14%, var(--piano)); }
 .apri-term:disabled { opacity: .7; cursor: default; }
 .term-errore { color: var(--attesa); font-size: 12px; }
+/* pulsante «Terminale del SUP» sopra la casella, a destra: neutro, non è un allarme */
+.al-sup-azioni { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; margin: 0 0 -2px; }
+.apri-term.term-sup { display: inline-flex; align-items: center; gap: 6px; border-color: color-mix(in srgb, var(--tenue) 70%, var(--piano)); color: var(--testo); font-weight: 550;
+  min-height: 30px; padding: 3px 10px; }
+.apri-term.term-sup:hover { background: color-mix(in srgb, var(--testo) 7%, var(--piano)); }
 .aspetta-riga:hover { background: color-mix(in srgb, var(--attesa) 18%, transparent); }
+/* filo unico del SUP: voci degli altri fili più quiete, su 3 righe, nome della sessione cliccabile */
+.chat .v-altro { border-left: 2px dashed color-mix(in srgb, var(--tenue) 45%, var(--linea)); background: color-mix(in srgb, var(--testo) 3%, transparent); border-radius: 0 6px 6px 0; padding: 6px 10px 6px 12px; }
+.chat .v-altro .v-chi { font-weight: 500; }
+.chat .v-altro .v-tutto { font-size: 11.5px; min-height: 28px; padding: 2px 0; }
+.chat .v-altro .v-testo { font-size: 12.5px; color: color-mix(in srgb, var(--testo) 82%, var(--tenue)); }
+.chat .v-tu-s { border-left-color: color-mix(in srgb, var(--accento) 55%, var(--linea)); }
+.chat .v-corto { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+.chat .v-sessione { border: 0; background: none; padding: 0; font: inherit; font-weight: 550; color: inherit; cursor: pointer;
+  text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--tenue) 60%, transparent); text-underline-offset: 2px; }
+.chat .v-sessione:hover, .chat .v-sessione:focus-visible { text-decoration-color: currentColor; }

@@ -23,7 +23,10 @@ const minutiDa = (ora) => { const t = Date.parse(String(ora || "").replace(" ", 
 const inRitardo = (q) => q.stato === "nuova" && minutiDa(q.ora) >= RITARDO_MIN;
 const DORMIENTE_MIN = 180; // ferma da più di 3 ore: in fondo e attenuata, qualunque ordine automatico
 const dormiente = (s) => s.stato === "ferma" && (s.minuti ?? 0) >= DORMIENTE_MIN;
-const PESO_STATO = { "in attesa": 0, ferma: 1, "al lavoro": 2, "non viva": 3 };
+const PESO_STATO = { "in attesa": 0, ferma: 1, "al lavoro": 2, "non viva": 3, "in pausa": 4 };
+/* in pausa: «bypassata da tutto … sempre messe in fondo», anche in ordine manuale */
+const inPausa = (s) => s.stato === "in pausa";
+const oraHM = (t) => (t || "").slice(11, 16);
 const FERMA_RECENTE_MIN = 60; // «Ferme in cima» tiene sopra solo chi si è fermato da poco: le ferme da ore non coprono quelle al lavoro
 const fermaRecente = (s) => s.stato === "in attesa" || (s.stato === "ferma" && (s.minuti ?? 1e9) < FERMA_RECENTE_MIN);
 
@@ -60,12 +63,17 @@ const oraCorta = (s) => (s || "").slice(11, 16);
 
 /* link nei testi:
    [parola](url) e URL nudi (anche 127.0.0.1:4322/… senza http) → <a> in scheda nuova. Solo http/https: niente javascript:, data:, file:. */
-const RE_LINK = /\[([^\]\n]{1,200})\]\(\s*([^)\s]{1,2000})\s*\)|\b((?:https?:\/\/|(?:localhost|127\.0\.0\.1):\d{2,5})[^\s<>"'()\[\]]*)/gi;
+const FILE_EST = "png|jpe?g|gif|webp|svg|pdf|html?|md|txt|mp4|mov";
+const RE_LINK = new RegExp(String.raw`\[([^\]\n]{1,200})\]\(\s*([^)\n]{1,2000}?)\s*\)|\b((?:https?:\/\/|(?:localhost|127\.0\.0\.1):\d{2,5})[^\s<>"'()\[\]]*)|((?:~|\/Users\/[^\/\s]+)\/[^\n<>"'()\[\]·]*?\.(?:${FILE_EST}))(?![\w/])`, "gi");
+/* file locali (~/… o /Users/…): li serve il server Regia su /file. Host «localhost» apposta: Regia.app tiene dentro solo
+   127.0.0.1, così il file si apre nel browser e la Regia resta al suo posto */
+const fileLocale = (u) => /^(~|\/Users\/)/.test(u) && new RegExp(`\\.(${FILE_EST})$`, "i").test(u);
 function urlSicuro(u) {
+  if (fileLocale(u)) return `http://localhost:${location.port || 80}/file?p=${encodeURIComponent(u)}`;
   if (/^(localhost|127\.0\.0\.1):/i.test(u)) u = "http://" + u;
   try { const x = new URL(u); return x.protocol === "http:" || x.protocol === "https:" ? x.href : null; } catch (_) { return null; }
 }
-const senzaLink = (t) => String(t ?? "").replace(/\[([^\]\n]{1,200})\]\(\s*[^)\s]{1,2000}\s*\)/g, "$1"); // riga chiusa: è un bottone, niente <a>
+const senzaLink = (t) => String(t ?? "").replace(/\[([^\]\n]{1,200})\]\(\s*[^)\n]{1,2000}?\s*\)/g, "$1"); // riga chiusa: è un bottone, niente <a>
 // nomi di sessione nel testo → link che apre e porta alla riga. Solo nomi di sessioni vive, in MAIUSCOLO e come parola intera; il SUP no (non è una riga).
 function testoConNomi(fr, t) {
   const nomi = ultimo ? vista(ultimo).map((s) => s.nome).filter((n) => n.length >= 3) : [];
@@ -88,7 +96,7 @@ function conLink(testo) {
   const t = String(testo ?? ""), fr = document.createDocumentFragment();
   let da = 0;
   for (const m of t.matchAll(RE_LINK)) {
-    let grezzo = m[2] || m[3], parola = m[1];
+    let grezzo = m[2] || m[3] || m[4], parola = m[1] || (m[4] ? m[4].split("/").pop() : undefined);
     let coda = "";
     if (!parola) { const p = grezzo.match(/[.,;:!?]+$/); if (p) { coda = p[0]; grezzo = grezzo.slice(0, -coda.length); } } // punto finale fuori dal link
     const href = urlSicuro(grezzo);
@@ -124,7 +132,8 @@ function ordina(lista) {
   }[pref.ordine] || ((a, b) => a.nome.localeCompare(b.nome));
   const ferma = (s) => (pref.fermiInCima && s.nome !== SUP && fermaRecente(s) ? 0 : 1);
   const dorme = (s) => (pref.ordine !== "manuale" && dormiente(s) ? 1 : 0);
-  return lista.sort((a, b) => dorme(a) - dorme(b) || ferma(a) - ferma(b) || per(a, b) || a.nome.localeCompare(b.nome));
+  const pausa = (s) => (s.nome !== SUP && inPausa(s) ? 1 : 0);
+  return lista.sort((a, b) => pausa(a) - pausa(b) || dorme(a) - dorme(b) || ferma(a) - ferma(b) || per(a, b) || a.nome.localeCompare(b.nome));
 }
 
 /* perché l'ordine non è quello scelto: visibile, non solo nel title */
@@ -132,6 +141,7 @@ function scriviNotaOrdine(sessioni) {
   const parti = [];
   if (pref.fermiInCima && sessioni.some(fermaRecente)) parti.push("le sessioni ferme da meno di un'ora o in attesa di un permesso stanno in cima (spunta «Ferme in cima»)");
   if (pref.ordine !== "manuale" && sessioni.some(dormiente)) parti.push("quelle ferme da più di 3 ore stanno in fondo, attenuate");
+  if (sessioni.some(inPausa)) parti.push("quelle in pausa stanno sempre in ultima posizione ed escono da sole quando scrivi loro o riprendono a lavorare");
   const p = $("#nota-ordine");
   p.hidden = !parti.length;
   p.textContent = parti.length ? `Ordine: ${parti.join("; ")}.` : "";
@@ -195,11 +205,18 @@ function disegnaTestata(d) {
   });
   if (!Array.isArray(voci)) { if (!attese.length) lista.append(el("li", "nota-vuota", "Riquadro non ancora creato: il SUP lo riempie con sup.py sospeso aggiungi.")); }
   else if (!voci.length) { if (!attese.length) lista.append(el("li", "nota-vuota", "Niente in sospeso.")); }
-  else voci.forEach((v) => {
-    const li = el("li"); li.append(conLink(v.testo));
-    if (v.sessione) li.append(el("span", "di", v.sessione));
-    lista.append(li);
-  });
+  else {
+    /* voci di una sessione in pausa: in fondo e spente, col loro numero (lo stesso di sup.py sospeso) */
+    const ferme = new Set(vista(d).filter(inPausa).map((s) => s.nome));
+    const righe = voci.map((v, i) => {
+      const li = el("li"); li.value = attese.length + i + 1; li.append(conLink(v.testo));
+      const ses = (v.sessione || "").toUpperCase();
+      if (v.sessione) li.append(el("span", "di", ferme.has(ses) ? `${v.sessione} · in pausa` : v.sessione));
+      if (ferme.has(ses)) li.classList.add("in-pausa");
+      return li;
+    });
+    lista.append(...righe.filter((li) => !li.classList.contains("in-pausa")), ...righe.filter((li) => li.classList.contains("in-pausa")));
+  }
   $("#sospeso-conta").textContent = (Array.isArray(voci) ? voci.length : 0) + attese.length;
   $("#sospeso").classList.toggle("chiuso", !pref.sospesoAperto);
   $("#sospeso-apri").setAttribute("aria-expanded", String(pref.sospesoAperto));
@@ -317,8 +334,16 @@ function riempi(r, s) {
   const comp = $(".compito", r); // con le 2 righe in testa non si ripete: resta solo se manca il contesto
   comp.textContent = cx.occupa ? "" : pulisci(s.compito) || "Compito non scritto.";
   comp.hidden = !!cx.occupa;
-  const occ = $(".c-occupa", r); occ.replaceChildren(document.createTextNode(cx.occupa || "non scritto nell'agenda"));
-  if (cx.vecchia) occ.append(" ", el("span", "vecchia", "(dal registro, vecchio)"));
+  /* prima riga = lavoro ATTUALE (frase che l'agente riscrive a ogni cambio di compito); senza, lo scopo dall'agenda */
+  const occ = $(".c-occupa", r), ad = s.adesso;
+  $(".c-occupa-etichetta", r).textContent = ad ? "Adesso" : "Di cosa si occupa";
+  if (ad) {
+    const m = ad.minuti, eta = m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h` : `${Math.floor(m / 1440)} g`;
+    occ.replaceChildren(document.createTextNode(ad.testo), el("span", "vecchia", ` · da ${eta}${m >= 1440 ? ", vecchia" : ""}`));
+  } else {
+    occ.replaceChildren(document.createTextNode(cx.occupa || "non scritto nell'agenda"));
+    if (cx.vecchia) occ.append(" ", el("span", "vecchia", "(dal registro, vecchio)"));
+  }
   const pun = $(".c-punto", r); pun.replaceChildren();
   if (cx.ora) pun.append(el("time", null, cx.ora));
   pun.append(document.createTextNode(cx.punto || "nessuna voce recente nell'agenda"));
@@ -377,14 +402,19 @@ function riempi(r, s) {
 const chatDi = {}; // nome → { etag, voci }
 const chatAperte = new Set(); // voci lunghe aperte con «apri tutto» (chiave: ora + inizio testo)
 const chatRidotte = new Set(); // voci del SUP: aperte di default, «riduci» le accorcia
-const CHAT_MOSTRA = 15, CHAT_TAGLIO = 400;
-const ETICHETTE = { tu: () => "Tu (dalla Regia)", sup: () => "SUP", terminale: () => "Tu (nel terminale)",
+const CHAT_MOSTRA = 15, CHAT_TAGLIO = 400, CHAT_MOSTRA_SUP = 30;
+/* filo unico del SUP: nella chat del SUP anche ciò che scrivi nelle chat delle sessioni,
+   le risposte del SUP lì e i messaggi degli agenti al SUP; compatti su 3 righe con «apri», nome sessione cliccabile */
+let filoSup = { etag: null, voci: [] };
+const ALTRI = new Set(["tu-s", "sup-s", "agente"]);
+const ETICHETTE = { "tu-s": () => "Tu → ", "sup-s": () => "SUP → ", agente: () => "", tu: () => "Tu (dalla Regia)", sup: () => "SUP", terminale: () => "Tu (nel terminale)",
   sessione: (v) => v.passi > 1 ? `Sessione (ultimo di ${v.passi} aggiornamenti)` : "Sessione", in: (v) => `${v.da} → sessione`, out: (v) => `Sessione → ${v.a}` };
 
 function disegnaChat(nome, voci) {
   const ul = el("ul", "chat");
   ul.setAttribute("aria-label", `Chat di ${nome}, la più recente in alto`);
-  voci.slice(-CHAT_MOSTRA).reverse().forEach((v) => { // più recente in cima, come le risposte
+  voci.slice(-(nome === SUP ? CHAT_MOSTRA_SUP : CHAT_MOSTRA)).reverse().forEach((v) => { // più recente in cima
+    if (ALTRI.has(v.chi)) return ul.append(voceAltra(v));
     const li = el("li", `v v-${v.chi}`);
     const testa = el("div", "v-testa");
     testa.append(el("span", "v-chi", (ETICHETTE[v.chi] || (() => v.chi))(v)), el("time", null, oraCorta(v.ora)));
@@ -408,6 +438,47 @@ function disegnaChat(nome, voci) {
   return ul;
 }
 
+/* voce di un altro filo dentro la chat del SUP: stile diverso, chiusa su 3 righe, «apri» solo se il testo è più lungo */
+function voceAltra(v) {
+  const nome = v.chi === "agente" ? v.da : v.sessione;
+  const li = el("li", `v v-altro v-${v.chi}`);
+  const testa = el("div", "v-testa"), chi = el("span", "v-chi", ETICHETTE[v.chi](v));
+  const b = el("button", "v-sessione", nome || "?");
+  b.type = "button"; b.dataset.nome = nome || ""; b.title = `Apri la chat di ${nome}`;
+  chi.append(b);
+  if (v.chi === "agente") chi.append(document.createTextNode(" → SUP"));
+  testa.append(chi, el("time", null, oraCorta(v.ora)));
+  if (v.chi === "tu-s" && v.id) testa.append(chipStato(v));
+  const chiave = `${v.ora}|${v.chi}|${(v.testo || "").slice(0, 40)}`, aperto = chatAperte.has(chiave);
+  const p = el("p", `v-testo${aperto ? "" : " v-corto"}`);
+  // il nome è già nell'intestazione: tolto se il testo comincia con «NOME:» / «NOME ·»
+  const testo = nome ? String(v.testo || "").replace(new RegExp(`^${nome}\\s*[:·]\\s*`), "") : String(v.testo || "");
+  p.append(conLink(testoPiano(testo)));
+  li.append(testa, p);
+  const righe = (v.testo || "").split("\n").length;
+  if (righe > 3 || (v.testo || "").length > 180) {
+    const t = el("button", "v-tutto", aperto ? "riduci" : "apri");
+    t.type = "button";
+    t.addEventListener("click", (e) => { e.stopPropagation(); aperto ? chatAperte.delete(chiave) : chatAperte.add(chiave); disegna(); });
+    li.append(t);
+  }
+  return li;
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest(".v-sessione");
+  if (!b || !b.dataset.nome) return;
+  e.stopPropagation();
+  apriScheda(b.dataset.nome);
+});
+async function caricaFiloSup() {
+  try {
+    const r = await fetch("/api/filo-sup", { headers: filoSup.etag ? { "If-None-Match": filoSup.etag } : {} });
+    if (r.status === 304 || !r.ok) return false;
+    filoSup = { etag: r.headers.get("ETag"), voci: (await r.json()).voci || [] };
+    return true;
+  } catch (_) { return false; }
+}
+
 async function caricaChat(nome) {
   const c = chatDi[nome];
   try {
@@ -427,14 +498,15 @@ async function aggiornaChat() { // solo le sessioni aperte, solo a pagina visibi
 
 function scriviMeta(meta, s) {
   meta.replaceChildren();
-  meta.append(el("span", "st", s.stato === "in attesa" ? "forse aspetta un permesso" : s.stato));
-  if (s.minuti != null) meta.append(document.createTextNode(` · ${fa(s.minuti)}`));
+  meta.append(el("span", "st", s.stato === "in attesa" ? "forse aspetta un permesso" : inPausa(s) && s.pausa ? `in pausa dalle ${oraHM(s.pausa.ora)}` : s.stato));
+  if (s.minuti != null && !inPausa(s)) meta.append(document.createTextNode(` · ${fa(s.minuti)}`)); // in pausa: conta da quando, non l'ultima attività
   const k = s.contesto_k;
   if (k != null) {
     meta.append(document.createTextNode(" · "));
     meta.append(el("span", s.livello === "riavvio" ? "alto" : "", `${k}K${s.livello === "riavvio" ? " riavvio" : s.livello === "passaggio" ? " passaggio" : ""}`));
   }
-  meta.title = s.stato === "in attesa" ? "Fermo su un comando da più di 2 minuti: forse aspetta un permesso." : "";
+  meta.title = s.stato === "in attesa" ? "Fermo su un comando da più di 2 minuti: forse aspetta un permesso."
+    : inPausa(s) ? `In pausa${s.pausa && s.pausa.motivo ? ` (${s.pausa.motivo})` : ""}: fuori da avvisi e conteggi. Esce da sola quando le scrivi o riprende a lavorare.` : "";
 }
 
 /* stato UNICO di un messaggio.
@@ -589,7 +661,7 @@ function disegnaSup(d) {
   const vista_ = pref.viste[SUP] || "";
   const nonLette = risp.filter((x) => x.ora > vista_).length;
   $("#al-sup-risp-titolo").textContent = `Chat col SUP${nonLette ? ` · ${nonLette} ${nonLette === 1 ? "risposta nuova" : "risposte nuove"}` : ""}`;
-  const voci = [...tutte.map((q) => ({ ...q, chi: "tu" })), ...risp.map((x) => ({ ora: x.ora, chi: "sup", testo: x.testo }))]
+  const voci = [...tutte.map((q) => ({ ...q, chi: "tu" })), ...risp.map((x) => ({ ora: x.ora, chi: "sup", testo: x.testo })), ...filoSup.voci]
     .sort((a, b) => (a.ora < b.ora ? -1 : a.ora > b.ora ? 1 : 0));
   $("#al-sup-chat").replaceChildren(disegnaChat(SUP, voci));
   scriviRigheSup($("#ultimo-invio"), tutte);
@@ -732,9 +804,10 @@ $("#inizio").addEventListener("click", async (e) => { // un clic solo; lo stato 
 /* ---------- messaggi ogni 2 s: solo se cambiano (ETag → 304), la casella non viene toccata ---------- */
 async function aggiornaMessaggi() {
   if (!ultimo) return;
+  const filoNuovo = !document.hidden && await caricaFiloSup(); // filo unico del SUP, ETag/304
   try {
     const r = await fetch("/api/messaggi", { headers: etagMsg ? { "If-None-Match": etagMsg } : {} });
-    if (r.status === 304 || !r.ok) return;
+    if (r.status === 304 || !r.ok) { if (filoNuovo) disegna(); return; }
     etagMsg = r.headers.get("ETag");
     const m = await r.json(), vuoto = { richieste: [], risposte: [] };
     const prima = { ...ultimo, sup: { ...ultimo.sup } };
@@ -755,8 +828,8 @@ async function aggiornaMessaggi() {
 function daGuardare(d) {
   if (!d) return 0;
   const vista_ = pref.viste[SUP] || "";
-  const nonLette = (d.sup.risposte || []).filter((x) => x.ora > vista_).length;
-  return (d.sessioni || []).filter((s) => s.nome !== SUP && fermaRecente(s)).length + nonLette;
+  // solo le risposte del SUP non lette
+  return (d.sup.risposte || []).filter((x) => x.ora > vista_).length;
 }
 function aggiornaBadge() {
   if (!("setAppBadge" in navigator)) return;
@@ -766,13 +839,8 @@ function aggiornaBadge() {
 function avvisa(prima, dopo) {
   if (!prima || !dopo || !pref.avvisi || !("Notification" in window) || Notification.permission !== "granted") return;
   if (document.hasFocus()) return; // stai guardando la Regia: niente avviso
+  // SOLO i messaggi del SUP nella sua chat: niente più avvisi per sessioni ferme, fili di sessione o stati.
   const voci = [];
-  const per = new Map((prima.sessioni || []).map((s) => [s.nome, s]));
-  for (const s of dopo.sessioni || []) {
-    const p = per.get(s.nome);
-    if (p && p.stato === "al lavoro" && (s.stato === "ferma" || s.stato === "in attesa"))
-      voci.push([`${s.nome} ${s.stato === "in attesa" ? "forse aspetta un permesso" : "si è fermata"}`, senzaLink(primaRiga(s.ultimo_testo)).slice(0, 140), s.nome]);
-  }
   const ultimaOra = (prima.sup.risposte || []).reduce((m, x) => (x.ora > m ? x.ora : m), "");
   for (const x of dopo.sup.risposte || []) if (x.ora > ultimaOra && ultimaOra) voci.push(["Il SUP ti ha risposto", senzaLink(x.testo).slice(0, 160), "sup-" + x.ora]);
   voci.slice(0, 3).forEach(([titolo, body, tag]) => {
@@ -834,7 +902,7 @@ function disegnaSchede(sessioni) {
   if (!nav) return;
   const sup = ((ultimo && ultimo.sessioni) || []).find((s) => s.nome === SUP); // vista() lo esclude: ha il suo riquadro
   const lista = [...sessioni.filter((s) => s.nome !== SUP), ...(sup ? [sup] : [])].sort((a, b) => (a.nome === SUP ? -1 : b.nome === SUP ? 1
-    : String(a.avviata || "").localeCompare(String(b.avviata || "")) || a.nome.localeCompare(b.nome)));
+    : inPausa(a) - inPausa(b) || String(a.avviata || "").localeCompare(String(b.avviata || "")) || a.nome.localeCompare(b.nome)));
   const chiave = lista.map((s) => `${s.nome}:${s.stato}:${aperta(s.nome)}`).join("|");
   if (nav.dataset.chiave === chiave) return; // niente ridisegno se non cambia nulla
   nav.dataset.chiave = chiave;
@@ -871,17 +939,19 @@ document.addEventListener("click", async (e) => {
   const b = e.target.closest(".apri-term");
   if (!b) return;
   e.stopPropagation();
+  if (b.disabled) return;
   b.disabled = true;
+  const scritta = b.querySelector("span") || b, prima = scritta.textContent, titolo = b.title;
   try {
     const r = await fetch("/api/terminale", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nome: b.dataset.term }) });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.errore || `HTTP ${r.status}`);
-    b.textContent = d.prova ? "prova: non aperto" : "Aperto";
+    scritta.textContent = d.prova ? "prova: non aperto" : "Aperto";
   } catch (err) {
-    b.textContent = "Non riuscito"; b.title = String(err.message || err);
+    scritta.textContent = "Non riuscito"; b.title = String(err.message || err);
     const n = el("span", "term-errore", ` ${b.title}`); b.after(n); setTimeout(() => n.remove(), 15000);
   } finally {
-    setTimeout(() => { b.disabled = false; b.textContent = "Apri terminale"; }, 4000);
+    setTimeout(() => { b.disabled = false; scritta.textContent = prima; b.title = titolo; }, 4000);
   }
 }, true);
 function apriScheda(nome) {

@@ -4,9 +4,13 @@
   GET  /              → web/index.html (e i file statici di web/, elenco chiuso)
   GET  /api/stato     → istantanea di raccogli.py (cache 5 s)
   GET  /api/messaggi  → solo messaggi + battito del SUP, ETag (304 se nulla è cambiato): giro di 2 s
+  GET  /api/filo-sup → filo unico del SUP (chat.filo_sup: fili delle sessioni + agenti → SUP), ETag/304
   GET  /api/chat?s=NOME → chat della sessione (chat.py: trascrizione + coda + risposte, 0 token), ETag/304
   GET  /api/token     → scheda Token: consumi.py (calcoli di dont-waste-your-token in sola lettura, cache 60 s)
   POST /api/modifica  → {"id": "...", "testo": "..."} → richiesta modificata prima della risposta (modifiche.py)
+  POST /note         → note dell'estensione Chrome «Note sulle demo»: solo Origin
+                       chrome-extension://<ID in NOTE_ORIGINI>, corpo ≤ 64 KB {"testo", "url", "titolo", "ora"} →
+                       un messaggio nel filo della sessione scelta (stessa coda delle richieste, "fonte": "estensione")
   POST /api/richiesta → {"sessione": "NOME"|"SUP", "testo": "..."} → una riga in coda.jsonl (per il SUP);
                        con pausa.json (SUP in riavvio) va in attesa.jsonl e parte alla ripresa (attesa.py)
 
@@ -35,14 +39,22 @@ STATICI = {"/": ("index.html", "text/html"), "/index.html": ("index.html", "text
 for _n in ("regia-192.png", "regia-512.png", "regia-maskable-512.png", "apple-touch-180.png", "favicon-32.png", "regia.svg"):
     STATICI[f"/icone/{_n}"] = (f"icone/{_n}", "image/svg+xml" if _n.endswith(".svg") else "image/png")
 HOST_OK = {f"127.0.0.1:{PORTA}", f"localhost:{PORTA}"}
+# file locali cliccabili dai testi (GET /file?p=~/…): solo sotto queste cartelle, solo questi tipi, mai cartelle nascoste
+FILE_RADICI = [os.path.realpath(os.path.expanduser(x)) for x in os.environ.get("PLANCIA_FILE_RADICI", "~/Desktop").split(":") if x]
+FILE_TIPI = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp",
+             ".svg": "image/svg+xml", ".pdf": "application/pdf", ".html": "text/html", ".htm": "text/html",
+             ".md": "text/plain", ".txt": "text/plain", ".mp4": "video/mp4", ".mov": "video/quicktime"}
 PROVA = os.path.realpath(DATI) != os.path.realpath(QUI)  # dati finti: server di prova
 CODA_VERA = os.path.join(QUI, "coda.jsonl")
+# estensioni ammesse su POST /note → filo di destinazione. ID fisso ("key" nel manifest)
+NOTE_ORIGINI = {}  # {"chrome-extension://<id>": "NOME_SESSIONE"}: vuoto = /note spento
+NOTE_MAX = 64 * 1024
 PROVA_MIN = int(os.environ.get("PLANCIA_PROVA_MIN", "30"))  # il server di prova si spegne da solo
 
 
 # Aggiornamento da solo (senza, il server restava con il vecchio raccogli.py in memoria). Codice Python cambiato → il server si rilancia (execv, stessa porta, stesso
 # ambiente: launchd non se ne accorge). File della pagina cambiati → la versione in X-Regia-Versione cambia e app.js ricarica.
-PY = [os.path.join(QUI, n) for n in ("server.py", "raccogli.py", "consumi.py", "chat.py")]
+PY = [os.path.join(QUI, n) for n in ("server.py", "raccogli.py", "consumi.py", "chat.py", "pausa_sessioni.py")]
 
 
 def _firma(file):
@@ -173,6 +185,26 @@ class Plancia(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(dati)
 
+    def _file(self, grezzo):
+        """Un file locale citato in un testo (immagine, pdf, pagina). Fuori da FILE_RADICI, nascosto o di altro tipo: 404.
+        Servito in sandbox (CSP sandbox, niente script): una pagina aperta così non può usare le API della Regia."""
+        vero = os.path.realpath(os.path.expanduser(grezzo.strip()))
+        tipo = FILE_TIPI.get(os.path.splitext(vero)[1].lower())
+        dentro = any(vero.startswith(r + os.sep) for r in FILE_RADICI)
+        if not (grezzo and tipo and dentro) or "/." in vero or not os.path.isfile(vero):
+            return self._manda(404, {"errore": "file non disponibile"})
+        with open(vero, "rb") as f:
+            dati = f.read()
+        self.send_response(200)
+        self.send_header("Content-Type", tipo if tipo.startswith(("image/", "video/", "application/")) else f"{tipo}; charset=utf-8")
+        self.send_header("Content-Length", str(len(dati)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")  # un sito estraneo non può incorporarlo (<img>…) per sapere se esiste
+        self.send_header("Content-Security-Policy", "sandbox; default-src 'self' data:; style-src 'self' 'unsafe-inline' data:; img-src 'self' data:")
+        self.end_headers()
+        self.wfile.write(dati)
+
     def _json_etag(self, etag, fai):
         """Risposta JSON con ETag: 304 senza calcolare niente se il client ha già quella versione."""
         if self.headers.get("If-None-Match") == etag:
@@ -214,10 +246,19 @@ class Plancia(BaseHTTPRequestHandler):
             if not sid:
                 return self._manda(404, {"errore": "sessione non viva"})
             return self._json_etag(chat_.firma(sid), lambda: chat_.chat(nome, sid))
+        if p == "/api/filo-sup":  # filo unico del SUP: fili delle sessioni + messaggi degli agenti al SUP
+            base = _cache if _cache is not None else stato()
+            sid = None if FINTO else next((x.get("session_id") for x in base.get("sessioni", []) if x["nome"] == "SUPERAGENTE"), None)
+            if FINTO:  # prova: messaggi agente → SUP finti dalla chiave «filo_sup» del file finto, il resto dai dati di prova
+                extra = (finto("filo_sup", []) or [])
+                return self._manda(200, {"voci": sorted(chat_.filo_sup(None)["voci"] + extra, key=lambda v: v.get("ora", ""))[-chat_.FILO_SUP_MAX:]})
+            return self._json_etag(chat_.firma_sup(sid), lambda: chat_.filo_sup(sid))
         if p == "/api/messaggi":
             return self._json_etag(firma_messaggi(), messaggi)
         if p == "/api/token":
             return self._manda(200, token())
+        if p == "/file":
+            return self._file((parse_qs(urlparse(self.path).query).get("p") or [""])[0])
         if p in STATICI:
             nome, tipo = STATICI[p]
             try:
@@ -262,8 +303,71 @@ class Plancia(BaseHTTPRequestHandler):
             _cache = None
         return self._manda(201, dict(riga, trattenuta=trattenuta))
 
+    def _note_cors(self, origine):  # niente ACAO generico: solo l'origine ammessa, ripetuta
+        return {"Access-Control-Allow-Origin": origine, "Vary": "Origin"} if origine in NOTE_ORIGINI else {}
+
+    def do_OPTIONS(self):  # preflight solo per /note e solo dall'estensione ammessa (dal service worker non serve)
+        origine = self.headers.get("Origin", "")
+        if self.path != "/note" or not self._host_ok() or origine not in NOTE_ORIGINI:
+            self.send_response(403); self.send_header("Content-Length", "0"); self.end_headers(); return
+        self.send_response(204)
+        for k, v in self._note_cors(origine).items():
+            self.send_header(k, v)
+        self.send_header("Access-Control-Allow-Methods", "POST")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Max-Age", "600")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _note(self):
+        global _cache
+        origine = self.headers.get("Origin", "")
+        cors = self._note_cors(origine)
+        def manda(codice, corpo):
+            dati = json.dumps(corpo, ensure_ascii=False).encode()
+            self.send_response(codice)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(dati)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            for k, v in cors.items():
+                self.send_header(k, v)
+            self.end_headers()
+            self.wfile.write(dati)
+        if not self._host_ok() or origine not in NOTE_ORIGINI:
+            return manda(403, {"ok": False, "errore": "origine non ammessa"})
+        if not self.headers.get("Content-Type", "").startswith("application/json"):
+            return manda(415, {"ok": False, "errore": "serve application/json"})
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            n = 0
+        if not 0 < n <= NOTE_MAX:
+            return manda(413, {"ok": False, "errore": f"corpo vuoto o oltre {NOTE_MAX} byte"})
+        try:
+            d = json.loads(self.rfile.read(n))
+            testo = str(d.get("testo", "")).strip()
+            url = str(d.get("url", "") or "").strip()[:2000]
+            titolo = str(d.get("titolo", "") or "").strip()[:200]
+        except (ValueError, AttributeError, UnicodeDecodeError):
+            return manda(400, {"ok": False, "errore": "JSON non valido"})
+        if not testo:
+            return manda(400, {"ok": False, "errore": "testo vuoto"})
+        sessione = NOTE_ORIGINI[origine]
+        corpo = (titolo or "Note dall'estensione") + ("\n" + url if url else "") + "\n\n" + testo
+        riga = {"id": time.strftime("%m%d-%H%M%S") + "-" + secrets.token_hex(2), "sessione": sessione, "testo": corpo,
+                "ora": time.strftime("%Y-%m-%d %H:%M:%S"), "fonte": "estensione"}
+        with _lock:
+            trattenuta = scrivi(DATI, riga)
+            if PROVA and not testo.lower().startswith("prova"):
+                scrivi(QUI, dict(riga, da_prova=True))
+            _cache = None
+        return manda(200, {"ok": True, "id": riga["id"], "trattenuta": trattenuta})
+
     def do_POST(self):
         global _cache
+        if self.path == "/note":
+            return self._note()
         # contro richieste da altri siti: Host locale, Origin (se c'è) locale, corpo JSON
         origine = self.headers.get("Origin")
         if not self._host_ok() or (origine and origine.split("://", 1)[-1] not in HOST_OK):

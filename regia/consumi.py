@@ -19,7 +19,7 @@ LIMITI = os.environ.get("PLANCIA_LIMITI", os.path.join(CASA, ".claude/consumo/li
 TRASCRIZIONI = os.environ.get("PLANCIA_TRASCRIZIONI", os.path.join(CASA, ".claude/projects"))
 DATI = os.environ.get("PLANCIA_DATI", os.path.dirname(os.path.abspath(__file__)))
 CACHE = os.path.join(DATI, ".cache-token.json")
-SOGLIA_GIORNO = 14  # % della settimana al giorno: tetto consigliato (~1/7 della settimana)
+SOGLIA_GIORNO = 14  # % della settimana al giorno : tetto consigliato (~1/7 della settimana)
 
 
 def _ctm():

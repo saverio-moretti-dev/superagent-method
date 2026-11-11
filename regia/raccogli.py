@@ -5,6 +5,7 @@ Fonti: `claude agents --json` (vive, busy/idle), trascrizioni ~/.claude/projects
 ultima scrittura, ultimo testo, attesa permesso), SESSIONI.md (§ Aperte), agende/<NOME>.md
 (§ 3 prossimi passi, § 10 cronologia), passaggi.py elenco, ~/.claude/consumo/limiti.csv, file della plancia
 (insospeso.json, richieste.json, risposte.jsonl: scritti da server.py e sup.py).
+Unica scrittura: le pause delle sessioni che scadono (pausa_sessioni.aggiorna → sessioni-pausa.json, riga nel filo).
 
 Uso: python3 regia/raccogli.py  → JSON su stdout.  Da codice: `from raccogli import raccogli`.
 """
@@ -13,6 +14,7 @@ import datetime, glob, json, os, re, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from attesa import trattenute  # noqa: E402
 from modifiche import unisci  # noqa: E402
+import pausa_sessioni  # noqa: E402
 
 QUI = os.path.dirname(os.path.abspath(__file__))
 HUB = os.environ.get("PLANCIA_HUB", os.path.dirname(QUI))  # cartella con SESSIONI.md e agende/
@@ -86,8 +88,10 @@ def trascrizione(session_id):
                 visto = d["timestamp"]
             u = m.get("usage")
             if u:
-                k = (u.get("input_tokens", 0) + u.get("cache_read_input_tokens", 0)
-                     + u.get("cache_creation_input_tokens", 0)) // 1000
+                tot = (u.get("input_tokens", 0) + u.get("cache_read_input_tokens", 0)
+                       + u.get("cache_creation_input_tokens", 0))
+                if tot > 0:  # usage tutta a zero in coda alla trascrizione non azzera il contesto
+                    k = tot // 1000
             c = m.get("content")
             if not isinstance(c, list):
                 continue
@@ -152,6 +156,23 @@ def _frase(t, lung=170):
     if m:
         t = t[:m.start()]
     return t if len(t) <= lung else t[:lung - 1].rsplit(" ", 1)[0] + "…"
+
+
+COMPITI = os.path.join(os.environ.get("SB_CONSUMO_DIR") or os.path.join(CASA, ".claude", "consumo"), "compiti")
+
+
+def adesso(sid):
+    """Il lavoro ATTUALE della sessione: la frase che l'agente riscrive a ogni cambio di compito
+    (compiti/<sid>.adesso.txt, chiesta dall'hook dell'etichetta); se manca, l'etichetta della barra (2-4 parole)."""
+    for nome, fonte in ((f"{sid}.adesso.txt", "frase"), (f"{sid}.txt", "etichetta")):
+        p = os.path.join(COMPITI, nome)
+        try:
+            testo = " ".join(open(p, encoding="utf-8").read().split())[:200]
+            if testo:
+                return {"testo": testo, "fonte": fonte, "minuti": int((time.time() - os.path.getmtime(p)) // 60)}
+        except OSError:
+            continue
+    return None
 
 
 def contesto(ag, reg):
@@ -225,7 +246,8 @@ def comandi_in_corso():
 
 
 def consumo():
-    """Consumo per la testata. Più sessioni scrivono limiti.csv nello stesso secondo e alcune riportano letture vecchie: l'ultima riga non basta. Dentro una finestra (stessa ora di
+    """Consumo per la testata. Più sessioni scrivono limiti.csv nello stesso secondo e alcune riportano letture vecchie
+   : l'ultima riga non basta. Dentro una finestra (stessa ora di
     ripristino) il consumo non scende → massimo delle ultime righe di quella finestra; 5 ore scaduta → nessun valore."""
     def n(x):
         try:
@@ -260,7 +282,8 @@ def soglia_oggi(r7, ora=None):
 
 
 def taglia_sup(rich, n=30):
-    """Richieste al SUP per la lista sotto la casella: tutte le aperte (né risposta né consegnata) + le ultime n."""
+    """Richieste al SUP per la lista sotto la casella: tutte le aperte (né risposta né consegnata) + le ultime n
+   ."""
     fatta = lambda q: q.get("stato") == "grigio" or any(x.get("stato") == "risposta" for x in q.get("storia") or [])
     ultime = rich[-n:]
     return [q for q in rich[:-n] if not fatta(q)] + ultime if len(rich) > n else rich
@@ -279,6 +302,16 @@ def raccogli():
                     storia=s.get("storia", []), a=s.get("a"), mod_vista=s.get("mod_vista"))
     sessioni = []
     lunghi = comandi_in_corso()
+    # sessioni in pausa: escono da sole se l'utente scrive loro o tornano a lavorare; l'uscita va nel filo
+    stati = {}
+    for a in agenti:
+        n = (a.get("name") or "").upper()
+        if n:
+            stati[n] = "busy" if a.get("status") == "busy" or stati.get(n) == "busy" else a.get("status")
+    prima = len(pausa_sessioni.leggi(DATI))
+    pause = pausa_sessioni.aggiorna(DATI, stati, coda) if not errore else pausa_sessioni.leggi(DATI)
+    if len(pause) < prima:  # qualcuna è uscita: la riga nuova del filo deve esserci già in questa istantanea
+        risposte = _jsonl(os.path.join(DATI, "risposte.jsonl"))
     for a in agenti:
         nome = (a.get("name") or "?").upper()
         t = trascrizione(a.get("sessionId", ""))
@@ -288,11 +321,15 @@ def raccogli():
             #
             e = lunghi.get(a.get("pid"))
             stato = "al lavoro" if e is not None and e <= (t.get("minuti") or 0) * 60 + 90 else "in attesa"
+        p = pause.get(nome)
+        if p:  # vince su ferma e in attesa: niente banner permesso, niente avvisi, sempre in fondo
+            stato = "in pausa"
         sessioni.append({
             "nome": nome, "session_id": a.get("sessionId"), "pid": a.get("pid"), "cwd": a.get("cwd"),
             "avviata": a.get("startedAt"), "stato": stato, **t,
+            "pausa": {"ora": p.get("ora"), "motivo": p.get("motivo", "")} if p else None,
             "compito": (compiti.get(nome) or {}).get("testo"), "agenda": (ag := agenda(nome)),
-            "contesto": contesto(ag, compiti.get(nome)),
+            "contesto": contesto(ag, compiti.get(nome)), "adesso": adesso(a.get("sessionId", "")) if a.get("sessionId") else None,
             "passaggio": note.get(nome),
             "richieste": [con_stato(r) for r in coda if r.get("sessione", "").upper() == nome][-6:],
             "risposte": [r for r in risposte if r.get("sessione", "").upper() == nome][-10:],
@@ -321,7 +358,7 @@ if __name__ == "__main__":
     print()
 
 
-FILE_MESSAGGI = ("coda.jsonl", "richieste.json", "risposte.jsonl", "sup-ascolto.json", "attesa.jsonl", "pausa.json")
+FILE_MESSAGGI = ("coda.jsonl", "richieste.json", "risposte.jsonl", "sup-ascolto.json", "attesa.jsonl", "pausa.json", "sessioni-pausa.json")
 
 
 def firma_messaggi():

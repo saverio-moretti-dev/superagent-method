@@ -23,18 +23,19 @@ Senza hub o senza note la pagina funziona lo stesso: quelle righe restano vuote.
 ## Pezzi
 | file | chi lo usa | cosa fa |
 |---|---|---|
-| `server.py` | utente | pagina e API: `/api/stato`, `/api/messaggi` (ETag, ogni 2 s), `/api/chat`, `/api/token`, `POST /api/richiesta`, `POST /api/modifica`; si riavvia da solo quando cambia il codice |
+| `server.py` | utente | pagina e API: `/api/stato`, `/api/messaggi` (ETag, ogni 2 s), `/api/chat`, `/api/filo-sup` (filo unico del SUP: anche i messaggi scritti nelle chat delle sessioni e quelli degli agenti al SUP), `/api/token`, `POST /api/richiesta`, `POST /api/modifica`, `POST /note` (estensioni Chrome ammesse in `NOTE_ORIGINI`, vuoto = spento); si riavvia da solo quando cambia il codice |
 | `raccogli.py` | server | istantanea in JSON di sessioni, agende, passaggi, consumo |
 | `chat.py` | server | chat di una sessione ricostruita dalla trascrizione, senza chiamare modelli |
 | `consumi.py` | server | scheda Token |
 | `sup.py` | coordinatore | `nuove`, `prendi <id> [--a NOME]`, `giallo/grigio/conferma <id>`, `risposta <NOME|SUP> "…" [--id <id>]`, `sospeso elenco/aggiungi/togli`, `permesso "…"`/`permesso via`, `pausa`/`riprendi` |
 | `attesa.py`, `modifiche.py` | server, sup | messaggi trattenuti mentre il SUP si riavvia; richieste modificate dopo l'invio |
+| `pausa_sessioni.py` | sup, raccogli | sessioni «in pausa» (`sup.py sessione pausa NOME` / `sessione via NOME`): in fondo, niente avvisi, escono da sole quando qualcuno scrive loro |
 | `web/` | browser | pagina senza build, installabile come PWA (icone in `web/icone/`, sorgente `regia.svg`) |
 | `app-mac/` | utente | app Mac facoltativa (vedi sotto) |
 | `avvio/local.regia.server.plist` | utente | modello per l'avvio automatico all'accesso |
 
 File dati (in `.gitignore`, contengono messaggi): `coda.jsonl`, `attesa.jsonl`, `richieste.json`, `risposte.jsonl`,
-`insospeso.json`, `permesso.json`, `sup-ascolto.json`, `pausa.json`.
+`insospeso.json`, `permesso.json`, `sup-ascolto.json`, `pausa.json`, `sessioni-pausa.json`.
 
 ## Ciclo di una richiesta
 utente scrive nella casella → `coda.jsonl` (**nuova**) → il SUP con `sup.py nuove` la legge (**letta**) → ordina all'agente,
