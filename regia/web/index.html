@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regia</title>
+<meta name="theme-color" content="#16181b" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icone/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/icone/apple-touch-180.png">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="fissa" id="fissa">
+  <div class="fissa-dentro">
+    <div class="barra">
+      <h1>Regia</h1>
+      <nav class="schede" role="tablist" aria-label="Viste">
+        <button type="button" role="tab" id="scheda-sessioni" aria-controls="vista-sessioni" aria-selected="true">Sessioni</button>
+        <button type="button" role="tab" id="scheda-token" aria-controls="vista-token" aria-selected="false">Token</button>
+      </nav>
+      <div class="consumo" id="consumo" title="Consumo del piano (limiti.csv)"></div>
+      <div class="strumenti vista-sessioni">
+        <select id="ordine" aria-label="Ordine delle sessioni">
+          <option value="recente">Più recenti</option>
+          <option value="peso">Contesto più pesante</option>
+          <option value="stato">Per stato</option>
+          <option value="nome">Per nome</option>
+          <option value="manuale">A mano</option>
+        </select>
+        <button id="riordina" class="secondario" type="button" title="Le righe da sole non si muovono (per non spostarti quella sotto il mouse): questo le rimette nell'ordine scelto. Col pallino ● l'ordine è cambiato.">Riordina</button>
+        <label class="spunta" title="Le sessioni ferme o in attesa restano sopra anche con l'ordine a mano"><input type="checkbox" id="fermi-in-cima" checked> Ferme in cima</label>
+        <button id="notifiche" class="secondario" type="button" hidden aria-pressed="false" title="Clic per accendere o spegnere: avviso di macOS quando una sessione si ferma o il SUP risponde">Avvisi macOS: spenti</button>
+        <button id="inizio" class="primario" type="button" title="Manda al SUP: fai fare /passaggio a chi ne ha bisogno, allineati col cloud, fammi il riepilogo, aggiorna l'app">Inizio lavori: riepilogo dal SUP</button>
+      </div>
+    </div>
+    <nav class="schede-sessioni vista-sessioni" id="schede-sessioni" aria-label="Sessioni vive: clic per aprire"></nav>
+    <div class="aspetta-te vista-sessioni" id="aspetta-te" role="status" hidden></div>
+  </div>
+</div>
+<header class="testata">
+  <p class="avviso pausa" id="avviso-pausa" hidden></p>
+  <p class="avviso" id="avviso-permesso" hidden></p>
+  <p class="avviso errore" id="avviso-errore" hidden></p>
+  <section class="al-sup vista-sessioni" id="al-sup" aria-labelledby="al-sup-titolo">
+    <div class="al-sup-scrivi">
+      <div class="al-sup-testa" data-stato="non viva">
+        <span class="punto" aria-hidden="true"></span>
+        <h2 id="al-sup-titolo">Al superagente</h2>
+        <span class="meta" id="al-sup-meta"></span>
+      </div>
+      <p class="ascolto" id="sup-ascolto" data-ok="?"></p>
+      <p class="avviso pausa" id="sup-riavvio" role="status" hidden></p>
+      <form class="modulo" id="al-sup-modulo">
+        <textarea id="al-sup-testo" maxlength="4000" rows="7" enterkeyhint="send" aria-labelledby="al-sup-titolo" placeholder="Scrivi direttamente al SUP, non a una sessione… (Invio manda, Maiusc+Invio va a capo)" title="Invio manda · Maiusc+Invio va a capo"></textarea>
+      </form>
+      <ul class="richieste ultimo-invio" id="ultimo-invio" aria-live="polite" aria-label="I tuoi messaggi al SUP, quelli aperti in cima"></ul>
+    </div>
+    <div class="al-sup-filo">
+      <section class="blocco chat-blocco"><h3 id="al-sup-risp-titolo">Chat col SUP</h3><div id="al-sup-chat"></div></section>
+    </div>
+  </section>
+  <section class="sospeso vista-sessioni" id="sospeso" aria-label="In sospeso">
+    <button class="sospeso-titolo" id="sospeso-apri" type="button" aria-expanded="true">
+      In sospeso <span class="conta" id="sospeso-conta">0</span>
+      <svg class="ico" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <ol id="sospeso-lista"></ol>
+  </section>
+</header>
+
+<main class="vista-sessioni" id="vista-sessioni" role="tabpanel" aria-labelledby="scheda-sessioni">
+  <p class="nota-ordine" id="nota-ordine" hidden></p>
+  <div class="intestazioni" aria-hidden="true">
+    <span>Sessione</span><span>Ultima attività</span><span>Richieste al SUP</span>
+  </div>
+  <div id="righe"></div>
+  <p class="vuoto" id="vuoto" hidden>Nessuna sessione viva.</p>
+  <p class="aggiornato" id="aggiornato" aria-live="polite"></p>
+</main>
+
+<main class="token" id="vista-token" role="tabpanel" aria-labelledby="scheda-token" hidden>
+  <p class="t-allarme" id="t-allarme" role="alert" hidden></p>
+  <div class="t-schede">
+    <section class="t-card" id="t-cinque"><h2>5 ore</h2><p class="t-num"></p><p class="t-sotto"></p><p class="t-prev"></p></section>
+    <section class="t-card" id="t-sette"><h2>Settimana</h2><p class="t-num"></p><p class="t-sotto"></p><p class="t-prev"></p></section>
+    <section class="t-card" id="t-oggi"><h2>Oggi</h2><p class="t-num"></p><p class="t-sotto"></p><p class="t-prev"></p></section>
+  </div>
+  <div class="t-grafici">
+    <section class="t-grafico"><div class="t-gtesta"><h2>Ultime 48 ore</h2><p class="legenda"><span class="l-sette">Settimana</span><span class="l-cinque">5 ore</span></p></div><div class="t-svg" id="g48"></div></section>
+    <section class="t-grafico"><div class="t-gtesta"><h2>Questa settimana</h2><p class="legenda"><span class="l-sette">Consumo</span><span class="l-ideale">Ritmo costante</span><span class="l-prev">Previsione</span></p></div><div class="t-svg" id="gsett"></div></section>
+  </div>
+  <div class="t-tabelle">
+    <section><h2>Token per giorno</h2><table id="t-giorni"></table></section>
+    <section><h2>Per progetto · 7 giorni</h2><table id="t-progetti"></table></section>
+    <section><h2>Per agente vivo</h2><table id="t-agenti"></table></section>
+  </div>
+  <p class="t-nota" id="t-nota"></p>
+</main>
+
+<template id="tpl-riga">
+  <article class="riga">
+    <div class="testa">
+      <span class="maniglia" title="Trascina per spostare"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><g fill="currentColor"><circle cx="6" cy="4" r="1.2"/><circle cx="10" cy="4" r="1.2"/><circle cx="6" cy="8" r="1.2"/><circle cx="10" cy="8" r="1.2"/><circle cx="6" cy="12" r="1.2"/><circle cx="10" cy="12" r="1.2"/></g></svg></span>
+      <button class="apri" type="button" aria-expanded="false">
+        <span class="c1"><span class="punto" aria-hidden="true"></span><span class="nome"></span><span class="pallino-nuovo" hidden title="Risposte non lette"></span><span class="meta"></span></span>
+        <span class="c2 attivita"></span>
+        <span class="c3 ultima"></span>
+      </button>
+    </div>
+    <div class="dettaglio" hidden>
+      <div class="contesto">
+        <p><span class="etichetta">Di cosa si occupa</span> <span class="c-occupa"></span></p>
+        <p><span class="etichetta">A che punto è</span> <span class="c-punto"></span></p>
+      </div>
+      <div class="col col-info">
+        <p class="compito"></p>
+        <p class="peso"></p>
+        <p class="passaggio" hidden></p>
+      </div>
+      <div class="col col-fatti"><div class="filo"></div></div>
+      <div class="col col-scrivi">
+        <form class="modulo">
+          <textarea maxlength="4000" rows="7" enterkeyhint="send" placeholder="Scrivi al SUP… (Invio manda, Maiusc+Invio va a capo)" title="Invio manda · Maiusc+Invio va a capo"></textarea>
+          </form>
+        <ul class="richieste"></ul>
+      </div>
+    </div>
+  </article>
+</template>
+
+<script src="/app.js"></script>
+<script src="/token.js"></script>
+</body>
+</html>

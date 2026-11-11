@@ -1,0 +1,11 @@
+pausa.json
+.cache-token.json
+__pycache__/
+# file dati: contengono messaggi
+coda.jsonl
+richieste.json
+risposte.jsonl
+insospeso.json
+permesso.json
+sup-ascolto.json
+attesa.jsonl*

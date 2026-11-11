@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- MODELLO: sostituire __CARTELLA_REGIA__ e __HOME__ (vedi LEGGIMI.md § Avvio automatico), poi copiare in ~/Library/LaunchAgents/ -->
+  <key>Label</key><string>local.regia.server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/python3</string>
+    <string>__CARTELLA_REGIA__/server.py</string>
+    <string>8765</string>
+  </array>
+  <key>WorkingDirectory</key><string>__CARTELLA_REGIA__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>__HOME__/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>PYTHONUNBUFFERED</key><string>1</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <!-- Standard, non Background: in Background macOS rallenta CPU e disco 6-10 volte --><key>ProcessType</key><string>Standard</string>
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/regia.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/regia.log</string>
+</dict>
+</plist>
