@@ -78,15 +78,34 @@ class Base(unittest.TestCase):
         self.r.tty_di = lambda pid: "ttys002"
         self.r.g_altri = lambda tty: None
 
-        def scrivi(tty, testo, prova):
+        def scrivi(tty, testo, prova, svuota=0):  # sessione finta: /clear e /riparti partono davvero
             self.inviati.append((self.r.tty_corto(tty), testo, self.ora.t))
+            self.simula(testo)
             return True
         self.r.scrivi = scrivi
+        self.r.pulisci = lambda tty, prova: True  # la casella sullo schermo non c'è nei test: vedi Casella
 
     def tearDown(self):
         shutil.rmtree(self.home, ignore_errors=True)
 
     # aiuti
+    def simula(self, testo):
+        """Effetto vero di un comando ben scritto: /clear = sessionId e trascrizione nuovi; /riparti = voce comando."""
+        if testo == "/clear":
+            self.sid = "aaaaaaaa-bbbb-cccc-dddd-%012d" % len(self.inviati)
+            self.trascrivi(CLEAR, fa_s=0)
+        elif testo.startswith("/riparti"):
+            p = self.trascrivi_aggiungi([{"type": "user", "message": {"content": "<command-name>/riparti</command-name>"}},
+                                         {"type": "system", "subtype": "turn_duration"}])
+
+    def trascrivi_aggiungi(self, voci):
+        p = os.path.join(self.home, ".claude", "projects", "p", f"{self.sid}.jsonl")
+        quando = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(self.ora.t))  # come le trascrizioni vere
+        with open(p, "a", encoding="utf-8") as f:
+            f.write("".join(json.dumps(dict(v, timestamp=quando)) + "\n" for v in voci))
+        os.utime(p, (self.ora.t - 60, self.ora.t - 60))
+        return p
+
     def trascrivi(self, voci, fa_s=60, sid=None):
         p = os.path.join(self.home, ".claude", "projects", "p", f"{sid or self.sid}.jsonl")
         with open(p, "w", encoding="utf-8") as f:
@@ -260,11 +279,13 @@ class Attesa(Base):
         self.trascrivi(FINE, fa_s=60)
         nuovo = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 
-        def scrivi(tty, testo, prova):
+        def scrivi(tty, testo, prova, svuota=0):
             self.inviati.append((self.r.tty_corto(tty), testo, self.ora.t))
             if testo == "/clear":
                 self.sid = nuovo
                 self.trascrivi(CLEAR, fa_s=0, sid=nuovo)
+            else:
+                self.simula(testo)
             return True
         self.r.scrivi = scrivi
         self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup", "--attendi", "15"), 0)
@@ -275,7 +296,7 @@ class Attesa(Base):
         self.nota(fa_s=60)
         self.trascrivi(FINE, fa_s=60)
 
-        def scrivi(tty, testo, prova):
+        def scrivi(tty, testo, prova, svuota=0):
             self.inviati.append((self.r.tty_corto(tty), testo, self.ora.t))
             if testo == "/clear":  # qualcuno scrive subito nella sessione pulita: turno vero
                 self.sid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
@@ -351,6 +372,131 @@ class Integrazione(unittest.TestCase):
             self.skipTest("trascrizione dopo /clear non presente")
         voci = self.voci(os.path.basename(f[0])[:-6], fino="2026-11-11T16:53:30Z")
         self.assertEqual(r.stato_voci(voci, dopo_clear=True)[0], True)
+
+
+class Casella(Base):
+    """Fallimento dell'11/11 19:40: avanzo nella casella → «rit/clear» messaggio normale. Logica pura (sessione finta)."""
+
+    def setUp(self):
+        super().setUp()
+        self.stato = "idle"
+        self.nota(fa_s=60)
+        self.trascrivi(FINE, fa_s=60)
+
+    def guasto(self, quanti):
+        """I primi `quanti` /clear arrivano come «rit/clear» (messaggio normale, stesso sid); poi funzionano."""
+        conta = []
+
+        def scrivi(tty, testo, prova, svuota=0):
+            self.inviati.append((self.r.tty_corto(tty), testo, self.ora.t))
+            if testo == "/clear" and len(conta) < quanti:
+                conta.append(1)
+                self.trascrivi_aggiungi([{"type": "user", "message": {"content": "rit/clear"}},
+                                         {"type": "assistant", "message": {"content": [{"type": "text", "text": "?"}]}},
+                                         {"type": "system", "subtype": "turn_duration"}])
+            else:
+                self.simula(testo)
+            return True
+        self.r.scrivi = scrivi
+
+    def test_26_rit_clear_due_volte_niente_riparti(self):
+        self.guasto(2)
+        self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup"), 4)
+        self.assertEqual([t for _, t, _ in self.inviati], ["/clear", "/clear"])
+        self.assertIn("arrivato come messaggio normale", self.log())
+        self.assertIn("FALLITO SUPERAGENTE", self.log())
+        self.assertNotIn("RIAVVIATO", self.log())
+
+    def test_27_rit_clear_una_volta_poi_ok(self):
+        self.guasto(1)
+        self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup"), 0)
+        self.assertEqual([t for _, t, _ in self.inviati], ["/clear", "/clear", "/riparti superagente"])
+        self.assertIn("CLEAR OK", self.log())
+        self.assertIn("RIAVVIATO SUPERAGENTE ttys002: verificato", self.log())
+
+    def test_28_clear_senza_effetto_niente_riparti(self):
+        def scrivi(tty, testo, prova, svuota=0):  # nessun segno, sid uguale: non partito
+            self.inviati.append((self.r.tty_corto(tty), testo, self.ora.t))
+            return True
+        self.r.scrivi = scrivi
+        self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup"), 4)
+        self.assertEqual([t for _, t, _ in self.inviati], ["/clear", "/clear"])
+
+    def test_29_clear_in_coda_dietro_un_cron(self):
+        """Il cron entra nello stesso istante: /clear resta in coda finché la sessione lavora, poi parte."""
+        self.stato = "busy"
+        self.trascrivi(FINE, fa_s=60)
+        vero = self.r.scrivi
+
+        def scrivi(tty, testo, prova, svuota=0):
+            if testo == "/clear":
+                self.inviati.append((self.r.tty_corto(tty), testo, self.ora.t))
+                self.trascrivi(CRON, fa_s=0)
+                parte = self.ora.t + 90
+
+                def gancio(o):
+                    if o.t >= parte and self.stato == "busy":
+                        self.stato = "idle"
+                        self.simula("/clear")
+                self.ora.gancio = gancio
+                return True
+            return vero(tty, testo, prova, svuota)
+        self.r.scrivi = scrivi
+        guardie = self.r.guardie
+        self.r.guardie = lambda *a, **k: None  # verde al lancio (il cron arriva dopo)
+        self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup"), 0)
+        self.r.guardie = guardie
+        self.assertEqual([t for _, t, _ in self.inviati], ["/clear", "/riparti superagente"])
+
+    def test_30_casella_non_svuotabile_niente_invio(self):
+        self.r.pulisci = lambda tty, prova: False
+        self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup"), 4)
+        self.assertEqual(self.inviati, [])
+        self.assertIn("NON mandato", self.log())
+
+    def test_31_riparti_come_messaggio_poi_ok(self):
+        conta = []
+
+        def scrivi(tty, testo, prova, svuota=0):
+            self.inviati.append((self.r.tty_corto(tty), testo, self.ora.t))
+            if testo.startswith("/riparti") and not conta:
+                conta.append(1)
+                self.trascrivi_aggiungi([{"type": "user", "message": {"content": "x/riparti superagente"}},
+                                         {"type": "system", "subtype": "turn_duration"}])
+            else:
+                self.simula(testo)
+            return True
+        self.r.scrivi = scrivi
+        self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup"), 0)
+        self.assertEqual([t for _, t, _ in self.inviati], ["/clear", "/riparti superagente", "/riparti superagente"])
+        self.assertIn("RIPARTI NON RIUSCITO", self.log())
+
+    def test_32_segno_sullo_schermo(self):
+        S = self.r.SEGNO
+        self.assertTrue(self.r.casella_col_segno([f" {S}", "  ", ""]))
+        self.assertFalse(self.r.casella_col_segno([f" rit{S}", ""]))
+        self.assertFalse(self.r.casella_col_segno([" rit", f" {S}"]))
+        self.assertFalse(self.r.casella_col_segno([f" {S}", " avanzo"]))
+        self.assertFalse(self.r.casella_col_segno(None))
+
+    def test_33_leggi_casella_ultima(self):
+        schermo = "❯ vecchio messaggio\nrisposta\n──── X ─\n❯ " + self.r.SEGNO + "\n  \n─────\n  stato\n"
+        with mock.patch.object(self.r.subprocess, "run", return_value=types.SimpleNamespace(stdout=schermo)):
+            self.assertEqual(self.r.leggi_casella(TTY), [" " + self.r.SEGNO, "  "])
+        with mock.patch.object(self.r.subprocess, "run", return_value=types.SimpleNamespace(stdout="niente")):
+            self.assertIsNone(self.r.leggi_casella(TTY))
+
+    def test_34_blocchi_corti(self):
+        """Oltre ~60 caratteri un do script diventa incolla (misurato 11/11 19:47): i blocchi restano corti."""
+        self.assertLessEqual(len(self.r.SVUOTA * 8 + self.r.SEGNO + "\\"), 40)
+        self.assertLessEqual(len(self.r.SVUOTA * 3 + "/riparti superagente"), 40)
+
+    def test_35_variabili_prova(self):
+        with mock.patch.dict(os.environ, {"RIAVVIA_BLOCCO_S": "0", "RIAVVIA_NOTA_MAX_S": "30"}):
+            r = carica(self.home)
+        self.assertEqual((r.BLOCCO_S, r.NOTA_MAX_S), (0, 30))
+        self.assertEqual((self.r.BLOCCO_S, self.r.NOTA_MAX_S), (300, 600))
+        self.assertEqual(self.lancia("PROVA-X", TTY, "--sup"), 1)
 
 
 if __name__ == "__main__":

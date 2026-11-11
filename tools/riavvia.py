@@ -22,6 +22,27 @@ Guardie (tutte, ricontrollate subito prima di ogni invio):
   d. nessun altro riavvio in attesa per la stessa scheda (ps: altri riavvia.py o il vecchio riavvia.sh).
 Una guardia rossa = niente invio, motivo stampato e scritto in ~/.claude/consumo/riavvii.log (uscita 2).
 Con --attendi ogni CAMBIO di guardia rossa si scrive nel log con l'ora (ATTESA …), così si vede perché non è partito.
+
+Casella d'ingresso e verifica (fallimento dell'11/11 19:40, causa dimostrata su sessione di prova):
+  `do script` scrive testo + invio IN CODA a quello che c'è già nella casella: con «rit» già scritto, «/clear»
+  è diventato il messaggio normale «rit/clear», il contesto è rimasto, e «/riparti» è partito sul contesto vecchio.
+  Quindi, prima di ogni comando:
+  e. la casella si svuota con Ctrl-K + Ctrl-U ripetuti (misurato: svuotano anche più righe col cursore in mezzo
+     ed escono dal modo shell «!») e si scrive un segno; si legge lo schermo della scheda e il segno deve essere
+     da solo nella casella. Blocchi corti: oltre ~60 caratteri in un solo `do script` Claude Code lo prende come
+     incolla (i tasti di controllo diventano testo e l'invio non manda);
+  f. ogni comando si VERIFICA: /clear = sessionId nuovo sul processo di quel tty (claude agents) + nuova
+     trascrizione con la voce <command-name>/clear</command-name>; /riparti = voce <command-name>/riparti</command-name>
+     nella trascrizione nuova. Un /clear scritto mentre la sessione lavora (cron, messaggi) resta in coda e parte
+     a fine turno: si aspetta finché è occupata. /clear non riuscito: un solo nuovo tentativo, poi uscita 4 e
+     niente /riparti (MAI /riparti sul contesto vecchio). /riparti non arrivato: un nuovo tentativo, poi uscita 5.
+  Il log scrive l'esito misurato (CLEAR OK sid vecchio → nuovo, RIPARTI OK, oppure FALLITO e perché).
+
+Variabili d'ambiente (solo per le prove; senza, valori normali):
+  RIAVVIA_BLOCCO_S=N      blocco per scheda in secondi (normale 300) — 10 riavvii di fila nelle prove
+  RIAVVIA_NOTA_MAX_S=N    età massima della nota in secondi (normale 600)
+  RIAVVIA_PROVA=1         consente --sup su una sessione di prova il cui nome comincia per PROVA-
+                          (manda «/riparti <nome in minuscolo>», come «/riparti superagente» per il SUP)
 """
 import glob, json, os, subprocess, sys, time
 
@@ -29,8 +50,11 @@ CASA = os.path.expanduser("~")
 PASSAGGI = os.path.join(CASA, ".claude", "passaggi")
 BLOCCHI = os.path.join(CASA, ".claude", "consumo", "riavvii")
 LOG = os.path.join(CASA, ".claude", "consumo", "riavvii.log")
-NOTA_MAX_S = 10 * 60
-BLOCCO_S = 5 * 60
+NOTA_MAX_S = int(os.environ.get("RIAVVIA_NOTA_MAX_S") or 10 * 60)
+BLOCCO_S = int(os.environ.get("RIAVVIA_BLOCCO_S") or 5 * 60)
+SVUOTA = "\x0b\x15"          # Ctrl-K + Ctrl-U: cancella a destra e a sinistra del cursore (a inizio/fine riga unisce)
+SEGNO = "QZXRIAVVIO"         # segno scritto dopo lo svuotamento: deve restare da solo nella casella
+ATTESA_OCCUPATA_S = 600      # quanto aspettare che un comando in coda parta, se la sessione lavora
 QUIETE_S = 20          # trascrizione ferma da almeno tanto per credere al «turno finito»
 FINE_TURNO = ("turn_duration", "stop_hook_summary")
 SOLO_DATI = {"last-prompt", "tools-used", "bridge-session", "file-history-snapshot", "summary", "custom-title",
@@ -72,7 +96,7 @@ def g_nota(nome, t0=None):
     if not os.path.exists(p):
         return f"nota {p} assente (prima /passaggio)"
     eta = (time.time() if t0 is None else t0) - os.path.getmtime(p)
-    return None if eta <= NOTA_MAX_S else f"nota {nome}.md scritta {int(eta // 60)} min prima del lancio (serve < 10)"
+    return None if eta <= NOTA_MAX_S else f"nota {nome}.md scritta {int(eta // 60)} min prima del lancio (serve < {NOTA_MAX_S // 60})"
 
 
 def sessione(nome):
@@ -169,7 +193,7 @@ def g_blocco(tty):
             prima = json.load(f)
         eta = time.time() - prima.get("t", 0)
         if eta < BLOCCO_S:
-            return f"già un riavvio su {tty_corto(tty)} {int(eta)} s fa ({prima.get('nome')}): aspetta 5 min"
+            return f"già un riavvio su {tty_corto(tty)} {int(eta)} s fa ({prima.get('nome')}): aspetta {BLOCCO_S} s"
     except (OSError, ValueError):
         pass
     return None
@@ -235,15 +259,182 @@ def guardie(nome, tty, *, nota=True, t0=None):
     return None
 
 
-def scrivi(tty, testo, prova):
+def scrivi(tty, testo, prova, svuota=0):
+    """do script nella scheda: SVUOTA×svuota, poi testo, poi invio (l'invio lo aggiunge Terminal)."""
     if prova:
         print(f"  (prova) scriverei in {tty_corto(tty)}: {testo}")
         return True
-    r = subprocess.run(["osascript", *[x for riga in APPLESCRIPT for x in ("-e", riga)], "/dev/" + tty_corto(tty), testo],
-                       capture_output=True, text=True, timeout=15)
+    r = subprocess.run(["osascript", *[x for riga in APPLESCRIPT for x in ("-e", riga)], "/dev/" + tty_corto(tty),
+                        SVUOTA * svuota + testo], capture_output=True, text=True, timeout=15)
     ok = r.stdout.strip() == "ok"
     registra(f"{tty_corto(tty)} ← {testo!r}: {r.stdout.strip() or r.stderr.strip()}")
     return ok
+
+
+LEGGI_SCHEDA = [
+    "on run argv",
+    'tell application "Terminal"',
+    "repeat with w in windows",
+    "repeat with t in tabs of w",
+    "if tty of t is (item 1 of argv) then",
+    "set c to history of t",
+    "return c",
+    "end if",
+    "end repeat",
+    "end repeat",
+    "end tell",
+    'return ""',
+    "end run",
+]
+
+
+def leggi_casella(tty):
+    """Righe della casella d'ingresso come appaiono ora sullo schermo della scheda (None se non si legge):
+    dall'ultima riga che comincia con «❯» fino al bordo «───» sotto."""
+    try:
+        r = subprocess.run(["osascript", *[x for riga in LEGGI_SCHEDA for x in ("-e", riga)], "/dev/" + tty_corto(tty)],
+                           capture_output=True, text=True, timeout=15)
+    except subprocess.SubprocessError:
+        return None
+    righe = r.stdout.splitlines()
+    inizio = max((i for i, l in enumerate(righe) if l.startswith("❯")), default=None)
+    if inizio is None:
+        return None
+    casella = [righe[inizio][1:]]
+    for l in righe[inizio + 1:]:
+        if l.startswith("──"):
+            return casella
+        casella.append(l)
+    return None
+
+
+def casella_col_segno(casella):
+    """True se nella casella c'è solo il segno (più righe vuote): tutto quello che c'era prima è stato cancellato."""
+    return bool(casella) and casella[0].strip() == SEGNO and not any(l.strip() for l in casella[1:])
+
+
+def pulisci(tty, prova):
+    """Svuota la casella e lo dimostra: blocco corto Ctrl-K/Ctrl-U ×8 + segno + «\\» (l'invio di do script diventa
+    a capo, non manda), poi lettura dello schermo. Fino a 4 blocchi (8 righe di avanzo l'uno). Non manda niente."""
+    if prova:
+        print(f"  (prova) svuoterei la casella di {tty_corto(tty)}")
+        return True
+    for _ in range(4):
+        if not scrivi(tty, SEGNO + "\\", prova, svuota=8):
+            return False
+        time.sleep(0.8)
+        if casella_col_segno(leggi_casella(tty)):
+            return True
+    return False
+
+
+def comando(tty, testo, prova):
+    """Casella svuotata e verificata, poi il comando DA SOLO (il segno e l'a capo si cancellano nello stesso blocco)."""
+    if not pulisci(tty, prova):
+        registra(f"{tty_corto(tty)}: casella non svuotata (segno non visto sullo schermo): {testo!r} NON mandato")
+        return False
+    return scrivi(tty, testo, prova, svuota=3)
+
+
+def voci_di(sid):
+    f = trascrizione(sid)
+    if not f:
+        return []
+    out = []
+    with open(f, encoding="utf-8", errors="replace") as h:
+        for r in h:
+            try:
+                out.append(json.loads(r))
+            except ValueError:
+                continue
+    return out
+
+
+def _quando(d):
+    try:
+        from datetime import datetime
+        return datetime.fromisoformat(d.get("timestamp", "").replace("Z", "+00:00")).timestamp()
+    except (ValueError, TypeError):
+        return None
+
+
+def esito_comando(sid, nome_cmd, t_invio, testo=None):
+    """Nella trascrizione sid, dopo t_invio: 'ok' se c'è <command-name>/nome_cmd</command-name>, 'messaggio:<testo>' se
+    il testo del comando è arrivato come messaggio normale (il guasto delle 19:40), None se niente ancora."""
+    for d in voci_di(sid):
+        if d.get("type") != "user":
+            continue
+        q = _quando(d)
+        if q is not None and q < t_invio - 2:
+            continue
+        c = (d.get("message") or {}).get("content") if isinstance(d.get("message"), dict) else None
+        if isinstance(c, list):
+            c = " ".join(b.get("text", "") for b in c if isinstance(b, dict))
+        if not isinstance(c, str):
+            continue
+        if f"<command-name>/{nome_cmd}</command-name>" in c:
+            return "ok"
+        if c.rstrip().endswith(testo or f"/{nome_cmd}") and not c.lstrip().startswith("<"):  # «avanzo/clear»
+            return "messaggio:" + c[:80]
+    return None
+
+
+def occupata(nome, tty):
+    s = sessione(nome)
+    if isinstance(s, Exception):
+        return True
+    return any(x.get("status") not in ("idle", None) for x in s if tty_di(x["pid"]) == tty_corto(tty))
+
+
+def attendi_clear(nome, tty, sid0, t_invio):
+    """(sid nuovo, None) se il /clear è partito davvero; (None, motivo) se no. Aspetta finché la sessione è occupata
+    (il /clear resta in coda e parte a fine turno), poi 20 s di sessione ferma senza segni = non partito."""
+    fine, ferma_da = time.time() + ATTESA_OCCUPATA_S, None
+    while time.time() < fine:
+        time.sleep(2)
+        sid = sid_su(nome, tty)
+        if sid and sid != sid0 and esito_comando(sid, "clear", t_invio) == "ok":
+            return sid, None
+        guasto = esito_comando(sid0, "clear", t_invio, "/clear")
+        if guasto and guasto.startswith("messaggio:"):
+            return None, f"/clear arrivato come messaggio normale ({guasto[10:]!r}): contesto NON svuotato"
+        if occupata(nome, tty):
+            ferma_da = None
+            continue
+        ferma_da = ferma_da or time.time()
+        if time.time() - ferma_da >= 20:
+            return None, f"sessione ferma, sessionId ancora {(sid or '?')[:8]}: /clear non partito"
+    return None, f"dopo {ATTESA_OCCUPATA_S} s nessun /clear partito"
+
+
+def attendi_comando(nome, tty, sid, nome_cmd, t_invio, testo=None):
+    """None se /nome_cmd è partito come comando nella sessione sid, altrimenti il motivo (stessa attesa di sopra)."""
+    fine, ferma_da = time.time() + ATTESA_OCCUPATA_S, None
+    while time.time() < fine:
+        time.sleep(2)
+        e = esito_comando(sid, nome_cmd, t_invio, testo)
+        if e == "ok":
+            return None
+        if e:
+            return f"/{nome_cmd} arrivato come messaggio normale ({e[10:]!r})"
+        if occupata(nome, tty):
+            ferma_da = None
+            continue
+        ferma_da = ferma_da or time.time()
+        if time.time() - ferma_da >= 20:
+            return f"/{nome_cmd} non visto nella trascrizione {sid[:8]}"
+    return f"dopo {ATTESA_OCCUPATA_S} s /{nome_cmd} non visto"
+
+
+def attendi_ferma(nome, tty, dopo_clear, secondi):
+    motivo = None
+    fine = time.time() + secondi
+    while time.time() < fine:
+        motivo = g_ferma(nome, tty, dopo_clear=dopo_clear)
+        if not motivo:
+            return None
+        time.sleep(5)
+    return motivo or "tempo scaduto"
 
 
 def claude_su(tty):
@@ -273,8 +464,8 @@ def main(a):
     cartella = a[2] if len(a) > 2 else None
     if not sup and not cartella:
         esci("manca CARTELLA (per il SUP: --sup)", 1)
-    if sup and nome != "SUPERAGENTE":
-        esci("--sup solo con SUPERAGENTE", 1)
+    if sup and nome != "SUPERAGENTE" and not (os.environ.get("RIAVVIA_PROVA") == "1" and nome.startswith("PROVA-")):
+        esci("--sup solo con SUPERAGENTE (o con RIAVVIA_PROVA=1 su una sessione PROVA-…)", 1)
 
     t0 = time.time()
     fine = t0 + attendi * 60
@@ -300,25 +491,52 @@ def main(a):
     if not prova:
         blocca(tty, nome)
     if sup:
-        if not scrivi(tty, "/clear", prova):
-            esci("scheda non trovata: niente riavvio", 2)
-        # dopo /clear la sessione è vuota e ferma: ricontrollo solo che sia ferma e ancora lì (fino a 30 s:
-        # la trascrizione del /clear deve restare ferma QUIETE_S prima di crederle)
-        motivo = None
-        for _ in range(0 if prova else 6):
-            time.sleep(6)
-            motivo = g_ferma(nome, tty, dopo_clear=True)
-            if not motivo:
+        riparti = f"/riparti {nome.lower()}"
+        if prova:
+            comando(tty, "/clear", prova)
+            comando(tty, riparti, prova)
+            esci(f"{nome}: prova, niente scritto", 0)
+        sid0, sid1, perche = sid_su(nome, tty), None, None
+        for n in (1, 2):
+            if n == 2:  # nuovo tentativo solo a sessione ferma e ancora sul contesto vecchio
+                m = attendi_ferma(nome, tty, False, 300)
+                if m:
+                    perche = f"{perche}; secondo tentativo non fatto: {m}"
+                    break
+            t_invio = time.time()
+            if not comando(tty, "/clear", prova):
+                perche = "casella non svuotata o scheda non trovata"
+                continue
+            sid1, perche = attendi_clear(nome, tty, sid0, t_invio)
+            if sid1:
                 break
-        if motivo:
-            registra(f"DOPO /clear {nome}: {motivo}")
-            esci(f"/clear mandato, ma «/riparti» no: {motivo}", 2)
-        scrivi(tty, "/riparti superagente", prova)
-        registra(f"RIAVVIATO {nome} {tty_corto(tty)}{' (prova)' if prova else ''}")
-        esci(f"{nome} riavviato su {tty_corto(tty)}{' (prova)' if prova else ''}", 0)
+            registra(f"CLEAR NON RIUSCITO {nome} {tty_corto(tty)} (tentativo {n}): {perche}")
+        if not sid1:
+            registra(f"FALLITO {nome} {tty_corto(tty)}: /clear non partito ({perche}); /riparti NON mandato")
+            esci(f"RIAVVIO FALLITO di {nome}: /clear non partito ({perche}). /riparti non mandato: contesto vecchio.", 4)
+        registra(f"CLEAR OK {nome} {tty_corto(tty)}: sessione {(sid0 or '?')[:8]} → {sid1[:8]}")
+        for n in (1, 2):
+            motivo = attendi_ferma(nome, tty, True, 300)
+            if motivo:
+                registra(f"DOPO /clear {nome}: {motivo}")
+                esci(f"/clear fatto, ma «/riparti» no: {motivo}", 2)
+            if sid_su(nome, tty) != sid1:
+                registra(f"DOPO /clear {nome}: sessione cambiata ancora, /riparti non mandato")
+                esci("/clear fatto, ma la sessione è cambiata di nuovo: /riparti non mandato", 2)
+            t_invio = time.time()
+            perche = "casella non svuotata" if not comando(tty, riparti, prova) else attendi_comando(nome, tty, sid1, "riparti", t_invio, riparti)
+            if not perche:
+                break
+            registra(f"RIPARTI NON RIUSCITO {nome} {tty_corto(tty)} (tentativo {n}): {perche}")
+        if perche:
+            registra(f"FALLITO {nome} {tty_corto(tty)}: contesto svuotato ({sid1[:8]}) ma {riparti} non partito: {perche}")
+            esci(f"RIAVVIO A METÀ di {nome}: contesto svuotato, ma {riparti} non partito ({perche})", 5)
+        registra(f"RIAVVIATO {nome} {tty_corto(tty)}: verificato (/clear {(sid0 or '?')[:8]} → {sid1[:8]}, {riparti} partito)")
+        esci(f"{nome} riavviato su {tty_corto(tty)} (verificato)", 0)
 
-    if not scrivi(tty, "/exit", prova):
-        esci("scheda non trovata: niente riavvio", 2)
+    sid0 = sid_su(nome, tty)
+    if not comando(tty, "/exit", prova):
+        esci("casella non svuotata o scheda non trovata: niente riavvio", 2)
     for _ in range(0 if prova else 15):
         time.sleep(1)
         if not claude_su(tty):
@@ -328,9 +546,19 @@ def main(a):
         registra(f"ANCORA VIVA {nome} {tty_corto(tty)} dopo /exit")
         esci(f"{nome} ancora viva dopo /exit: guarda la scheda {tty_corto(tty)}", 2)
     q = cartella.replace("'", "'\\''")
+    t_invio = time.time()
     scrivi(tty, f"cd '{q}' && claude -n {nome} --disallowedTools=AskUserQuestion \"/riparti {nome}\"", prova)
-    registra(f"RIAVVIATO {nome} {tty_corto(tty)}{' (prova)' if prova else ''}")
-    esci(f"{nome} riavviato su {tty_corto(tty)}{' (prova)' if prova else ''}", 0)
+    if prova:
+        esci(f"{nome} riavviato su {tty_corto(tty)} (prova)", 0)
+    sid1 = None
+    for _ in range(30):  # la sessione nuova deve comparire su quel tty con la voce /riparti
+        time.sleep(2)
+        sid1 = sid_su(nome, tty)
+        if sid1 and sid1 != sid0 and esito_comando(sid1, "riparti", t_invio) == "ok":
+            registra(f"RIAVVIATO {nome} {tty_corto(tty)}: verificato (sessione {(sid0 or '?')[:8]} → {sid1[:8]}, /riparti partito)")
+            esci(f"{nome} riavviato su {tty_corto(tty)} (verificato)", 0)
+    registra(f"FALLITO {nome} {tty_corto(tty)}: dopo 60 s nessuna sessione nuova con /riparti (sid {(sid1 or '?')[:8]})")
+    esci(f"RIAVVIO NON VERIFICATO di {nome}: guarda la scheda {tty_corto(tty)}", 5)
 
 
 if __name__ == "__main__":
