@@ -52,3 +52,26 @@ rilanciata alle 19:53 con --disallowedTools SendMessage AskUserQuestion CronCrea
 | «utente» scrive nella casella subito dopo il segno (19:56:27) | 1 | segno non solo → secondo blocco di pulizia → OK: 3dc286c2 → 6d639c8d |
 | «utente» scrive fra la lettura dello schermo e /clear (19:56:47): il guasto delle 19:40 rifatto dal vivo | 1 | tentativo 1: «QZXRIAVVIO/clear» messaggio normale, rilevato (CLEAR NON RIUSCITO); /riparti NON mandato; tentativo 2 OK 6d639c8d → 69febf06, poi /riparti |
 | dopo il caso sopra: il blocco del comando passa da 3 a 8 coppie Ctrl-K/Ctrl-U (cancella anche quel testo) | — | test unitari 38/38 verdi |
+| 10 riavvii di fila (19:59:33–20:03:29), avanzi: rit⏎ · niente+intruso a 1,1 s · «!git status» · a · riga1 · 2 righe col cursore spostato · niente+intruso · frase lunga · «/model» · rit⏎ | 10 | 10/10 RIAVVIATO verificato, 0 tentativi falliti; controllo indipendente sulle trascrizioni: 10/10 con /clear e /riparti come comandi, 0 messaggi estranei in tutte le sessioni |
+| test unitari (python3 -m unittest tests.test_riavvia) | 38 | 38 OK |
+
+## Non provato dal vivo
+- Ramo agente (/exit + rilancio con verifica): solo test unitari (36-38); dal vivo la sessione nuova
+  partirebbe senza --disallowedTools SendMessage e potrebbe scrivere ad altre sessioni.
+- Cron vero dentro la sessione di prova (CronCreate tolto alla sessione di prova): al suo posto messaggio fra sessioni vero
+  (SendMessage) e /clear scritto mentre la sessione lavora (19:49:05: rimasto in coda, partito a fine turno, 19:49:23).
+- Prompt iniettato esattamente fra il segno e /clear con un messaggio fra sessioni: finestra < 2 s, non colpita a comando;
+  coperta da test 29 e dalla verifica (un /clear non partito non manda mai /riparti).
+- Una casella con un menu aperto (es. «/cle» con l'elenco dei comandi) senza invio: non riproducibile con do script.
+  Se lo schermo non mostra il segno da solo → niente invio (uscita 4).
+
+## Chiusura
+20:04 /exit nella sessione di prova, nessun claude su ttys005, finestra chiusa (era l'unica scheda);
+note finte PROVA-RIAVVIO-1* cancellate (solo quelle col testo «Nota FINTA di prova»). ~/.claude.json mai toccato.
+
+## Prova finale sul SUP vero (la fa METODO col via del SUP)
+Dopo /passaggio del SUP, con il SUP fermo:
+    nohup python3 ~/Desktop/saverio-moretti-dev/superagent-method/tools/riavvia.py SUPERAGENTE /dev/ttys002 --sup --attendi 5 >> "$TMPDIR/riavvio-sup.log" 2>&1 &
+Esito: `grep ttys002 ~/.claude/consumo/riavvii.log | tail` → deve esserci «CLEAR OK … sessione X → Y» e
+«RIAVVIATO SUPERAGENTE ttys002: verificato»; uscita 4 = /clear non partito (contesto intatto, /riparti NON mandato),
+5 = /riparti non partito, 2 = guardie rosse.
