@@ -28,7 +28,21 @@ Riproduzione (sessione PROVA-RIAVVIO-1, ttys005): 19:45:35 casella con «rit» +
 - Dopo un /clear vero `claude agents --json` dà un sessionId nuovo entro ~1 s e nasce un nuovo
   `<sessionId>.jsonl` con la voce `<command-name>/clear</command-name>` (prova 19:48:43).
 
+## Fix
+Commit 46ebba1 (tools/riavvia.py + tests/test_riavvia.py, 35 test verdi). Criterio «contesto svuotato»:
+sessionId nuovo sul processo di quel tty in `claude agents --json` E nella trascrizione nuova la voce
+`<command-name>/clear</command-name>` con ora ≥ invio; in più, se nella trascrizione vecchia arriva un messaggio
+normale che finisce con «/clear», è il guasto delle 19:40 e si ritenta (una volta), poi uscita 4 senza /riparti.
+/riparti verificato con la voce `<command-name>/riparti</command-name>` nella trascrizione nuova.
+Controllo indipendente dopo ogni prova: script che legge le due trascrizioni (vecchia: nessun messaggio
+dell'utente dopo il lancio; nuova: voci comando /clear e /riparti).
+
+Nota: ~/.claude.json NON toccato. Le prove girano in /private/tmp/prova-riavvio (cartella già fidata,
+nessuna domanda di fiducia: schermo letto, sessione partita), sessione PROVA-RIAVVIO-1 su ttys005,
+rilanciata alle 19:53 con --disallowedTools SendMessage AskUserQuestion CronCreate (non può scrivere ad altri).
+
 ## Casi
 | caso | n° | esito misurato |
 |---|---|---|
 | riproduzione: testo nella casella + /clear (vecchio script) | 1 | FALLITO come sul SUP: messaggio 'rit\n/clear', sid invariato |
+| fix, avanzo «rit⏎» nella casella + riavvia.py --sup (19:54:05) | 1 | OK in 8 s: sid 3f5c3164 → ddc61a39, vecchia senza messaggi, nuova con /clear e /riparti comando |
