@@ -217,8 +217,16 @@ def campagna(o):
                          o["modello-master"], 4)
         C["costo_usd"] += c
         open(os.path.join(dove, "resoconto.md"), "w", encoding="utf-8").write(r)
-        m5 = re.search(r"5\)\s*\**\s*BUCHI\W*(.*?)(?=\n\s*\**\s*6\)|\Z)", r, re.S | re.I)
-        C["buchi"] = m5.group(1).strip() if m5 else ""
+        m5 = re.search(r"5\)\s*\**\s*BUCHI[ \t:*_-]*([^\n]*)(.*?)(?=\n\s*\**\s*6\)|\Z)", r, re.S | re.I)
+        if m5:
+            # resto della riga del titolo: se il master ha ricopiato la descrizione del modello o chiuso il grassetto
+            # del titolo («**5) BUCHI: dove … bastavano**»), è intestazione, non contenuto
+            testa5 = m5.group(1).strip()
+            if testa5.endswith("**") or testa5.lower().startswith("dove le informazioni"):
+                testa5 = ""
+            C["buchi"] = (testa5 + m5.group(2)).strip()
+        else:
+            C["buchi"] = ""
     if o["controllo"] and C.get("storia"):
         cc = os.path.join(lavoro, "c")
         r, c, _ = lancia(cc, str(uuid.uuid4()), True, (
