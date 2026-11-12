@@ -21,7 +21,7 @@ Il coordinatore è il superagente Claude, o l'agente del progetto che ha fatto l
 |---|---|---|---|
 | 1 Semplice | un tester, un colpo, prompt da `references/persona-template.md` | testi, CV, controlli rapidi | 1× |
 | 2 Scena | il master scrive la storia del tester → il tester agisce → il master risponde una volta → il tester decide | proposte, pagine singole | ~2× |
-| 3 Simulazione | più turni alternati (tetto per campagna, es. 6) finché il tester decide: contatta / compra / lascia | siti per clienti, offerte vendibili | ~3-5× |
+| 3 Simulazione | più turni alternati (tetto per campagna, es. 6) finché il tester decide: compra / lascia (contattare l'autore è un'azione della partita, non la fine) | siti per clienti, offerte vendibili | ~3-5× |
 
 Si sceglie dal costo di sbagliare (`references/dimensionare.md`); il livello 3 solo per consegne che devono vendere o convincere davvero.
 
@@ -57,4 +57,6 @@ Per siti e pagine web, dove conta **come si vede e come si usa** (telefono, bott
 `<base>` = la «Base directory» di questa skill, indicata quando la skill si carica: gli script stanno in `<base>/scripts/`.
 `references/dimensionare.md` · `references/persona-template.md` (livello 1) · `references/master-template.md` · `references/storia-tester.md` (livelli 2-3) · `references/validita.md` · `references/bias.md`
 Meccanica: i tester girano come `claude -p --safe-mode --tools "WebSearch,WebFetch"` da una cartella vuota temporanea; il master come `claude -p` senza strumenti di file. Riserva: agente `tester-cieco` (con `omitClaudeMd`).
+Campagne: `campagna.py --giro <dir> --nome t1 --master MASTER.md --tester "…" --vietate parole.txt [--livello 3] [--turni 6] [--chiamate 12] [--controllo haiku]` → `<dir>/t1/` con `campagna.json`, `partita.md`, `resoconto.md` e i transcript; `<dir>/giro.json` (riassunto per chi lo mostra; metadati da `giro-meta.json`, conclusioni da `conclusioni.md`). Sessioni salvate della CLI cancellate a fine campagna. Prove a vuoto con haiku: il meccanismo regge, ma haiku come tester resta passivo (non contatta mai) e cita fonti mai aperte: per i giri veri sonnet.
 Limite noto: l'email dell'account resta visibile al tester; il template lo dice. Controlla che non l'abbia usata.
+**Messaggi fra sessioni**: un `claude -p` può ricevere i messaggi che un'altra sessione manda «a tutti» (12/11/2026: un messaggio del coordinatore è entrato in un processo di controllo dopo il suo risultato e gli ha fatto fare un secondo turno). Il sorvegliante chiude il processo al primo risultato e `check_blind.py` segna SOSPETTO ogni transcript in cui ne è entrato uno; durante un giro, il coordinatore non manda messaggi a sessioni senza nome.

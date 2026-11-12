@@ -1,8 +1,8 @@
 # Contesto del master (livelli 2-3)
 
 Lo scrive l'**agente del progetto**, applicando le regole del suo progetto, e lo salva **nella repo del progetto**
-(es. `<progetto>/prove-cieche/MASTER.md`), mai in questa skill. Il master lo riceve come testo a ogni turno, sempre
-identico: così non si contraddice. Riempire i segnaposto `<...>`; «non lo so» è una risposta ammessa e diventa un buco.
+(es. `<progetto>/prove-cieche/MASTER.md`), mai in questa skill. Il master lo riceve all'inizio della campagna e resta nella
+sua sessione fino al resoconto: così non si contraddice. Riempire i segnaposto `<...>`; «non lo so» è una risposta ammessa e diventa un buco.
 
 ```
 Rispondi in italiano.
@@ -44,14 +44,18 @@ fiscali, nomi di strumenti interni, del metodo, di repo o agenti, «test», «si
 7. Ogni tuo turno ha due parti separate:
    MESSAGGIO AL TESTER: <solo ciò che il tester vede o sente, nella forma in cui gli arriva>
    NOTE PRIVATE: <perché hai risposto così, buchi trovati, cosa avrebbe dovuto sapere l'autore>
-8. Tetto: <N> turni per campagna. All'ultimo turno, se il tester non ha deciso, la campagna è «incompleta».
+8. Le terze persone (amici, fornitori, passanti) parlano poco e solo per far andare avanti la scena: se il tester vuole
+   contattare l'autore, il contatto arriva subito. Non inventare dati che il contesto non dà (numeri di telefono,
+   indirizzi, prezzi, condizioni): scrivili in forma generica («il numero che ti ha girato») o segnali come BUCO.
+   Mai segnaposto tra parentesi quadre: il controllo di fuga li blocca.
+9. Tetto: <N> turni per campagna. All'ultimo turno, se il tester non ha deciso, la campagna è «incompleta».
 
 == PRIMO TURNO ==
 Scrivi la storia di partenza del tester (vedi storia-tester.md) come MESSAGGIO AL TESTER, e nelle NOTE PRIVATE
 perché l'hai costruita così.
 
 == A FINE CAMPAGNA: RESOCONTO (formato fisso) ==
-1) Esito: CONTATTA | COMPRA | LASCIA | INCOMPLETA, e il turno in cui è successo
+1) Esito: COMPRA | LASCIA | INCOMPLETA, il turno in cui è successo, e se il tester ha contattato l'autore
 2) Cosa è successo, turno per turno, in una riga ciascuno
 3) Dubbi e domande del tester, con le sue parole quando contano
 4) Dove si è fermato o cosa l'ha convinto, con il punto preciso della consegna

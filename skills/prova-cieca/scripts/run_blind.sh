@@ -9,13 +9,21 @@
 # num_turns 58, nessuno stop con max 25, costo oltre il tetto). Un sorvegliante legge il transcript mentre gira e ferma
 # il tester alla chiamata max-turni+1; allora scrive <cartella-output>/INTERROTTO e risposta.txt riporta l'ultimo testo
 # con la nota del tetto. --max-turns resta passato alla CLI come rete in più (scatta solo dopo).
+# Messaggi fra sessioni: un claude -p può riceverli come una sessione qualunque. Il sorvegliante chiude il processo al
+# primo evento result; check_blind.py segna SOSPETTO ogni transcript in cui ne è entrato uno.
 # CLI_TURNS=N (solo per le prove del sorvegliante) alza il --max-turns passato alla CLI.
+# Campagne (livelli 2-3, campagna.py): SESSIONE=<uuid> apre una sessione che resta salvata, RIPRENDI=<uuid> la riprende
+# (stessi strumenti: --safe-mode + --resume verificato il 12/11/2026), CARTELLA=<dir> usa quella cartella vuota invece di
+# una temporanea e non la cancella (la ripresa vuole la stessa cartella). Senza queste variabili: come sempre.
 set -euo pipefail
 PROMPT="${1:?prompt file}"; OUT="${2:?output dir}"; MODEL="${3:-sonnet}"; TURNS="${4:-30}"
 [ -f "$PROMPT" ] || { echo "prompt non trovato: $PROMPT" >&2; exit 2; }
 mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd)"; PROMPT="$(cd "$(dirname "$PROMPT")" && pwd)/$(basename "$PROMPT")"
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/cieco.XXXXXX")"   # cartella vuota: nessun contesto locale
-trap 'rm -rf "$WORK"' EXIT
+if [ -n "${CARTELLA:-}" ]; then mkdir -p "$CARTELLA"; WORK="$(cd "$CARTELLA" && pwd)"
+else WORK="$(mktemp -d "${TMPDIR:-/tmp}/cieco.XXXXXX")"; trap 'rm -rf "$WORK"' EXIT; fi   # cartella vuota: nessun contesto locale
+if [ -n "${RIPRENDI:-}" ]; then SESS=(--resume "$RIPRENDI")
+elif [ -n "${SESSIONE:-}" ]; then SESS=(--session-id "$SESSIONE")
+else SESS=(--no-session-persistence); fi
 cd "$WORK"
 C=mcp__claude-in-chrome__
 CHROME_OK="${C}tabs_context_mcp,${C}tabs_create_mcp,${C}tabs_close_mcp,${C}navigate,${C}computer,${C}read_page,${C}get_page_text,${C}find,${C}form_input,${C}resize_window"
@@ -30,7 +38,7 @@ rm -f "$OUT/INTERROTTO"; : > "$OUT/transcript.jsonl"
 # stessi server e stessi token con e senza, web e Chrome); resta come garanzia se --safe-mode cambia.
 ENABLE_CLAUDEAI_MCP_SERVERS=false claude -p --safe-mode \
   --tools "WebSearch,WebFetch" "${MCP[@]}" \
-  --model "$MODEL" --max-turns "${CLI_TURNS:-$TURNS}" --no-session-persistence \
+  --model "$MODEL" --max-turns "${CLI_TURNS:-$TURNS}" "${SESS[@]}" \
   --output-format stream-json --verbose < "$PROMPT" > "$OUT/transcript.jsonl" &
 CPID=$!
 # Sorvegliante: conta le chiamate a strumenti (id distinti dei blocchi tool_use) e ferma claude oltre il tetto.
@@ -51,6 +59,10 @@ while vivo():
         m = e.get("message") or {}
         if e.get("type") == "assistant":
             ids.update(c.get("id") for c in m.get("content", []) if c.get("type") == "tool_use")
+        if e.get("type") == "result":  # turno finito: chiudere subito, prima che arrivi un messaggio di un'altra
+            time.sleep(1)               # sessione (12/11/2026: un claude -p ha ricevuto un messaggio del coordinatore
+            if vivo(): os.kill(pid, signal.SIGTERM)  # dopo il risultato e ha fatto un secondo turno)
+            sys.exit(0)
     if len(ids) > lim:
         os.kill(pid, signal.SIGTERM); time.sleep(5)
         if vivo(): os.kill(pid, signal.SIGKILL)
@@ -61,6 +73,8 @@ while vivo():
 PY
 WPID=$!
 RC=0; wait "$CPID" || RC=$?
+# chiuso dal sorvegliante dopo un turno finito (SIGTERM = 143): non è un errore
+if [ "$RC" = 143 ] && [ ! -f "$OUT/INTERROTTO" ] && grep -q '"type": *"result"' "$OUT/transcript.jsonl"; then RC=0; fi
 wait "$WPID" 2>/dev/null || true
 python3 -I - "$OUT" <<'PY'
 import json,os,sys
@@ -68,7 +82,7 @@ o=sys.argv[1]; res=None; ultimo=""; esito=""
 for l in open(o+"/transcript.jsonl"):
     try: e=json.loads(l)
     except Exception: continue
-    if e.get("type")=="result": res=e.get("result") or ""; esito=e.get("subtype","")
+    if e.get("type")=="result" and res is None: res=e.get("result") or ""; esito=e.get("subtype","")  # solo il primo turno
     if e.get("type")=="assistant":
         t="".join(c.get("text","") for c in (e.get("message") or {}).get("content",[]) if c.get("type")=="text")
         if t.strip(): ultimo=t

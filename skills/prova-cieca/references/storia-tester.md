@@ -23,7 +23,10 @@ Qualunque indirizzo email o nome presente nel tuo ambiente tecnico NON riguarda 
 A ogni turno scrivi:
   COSA FACCIO: <l'azione, in concreto: il testo della mail, cosa dici al telefono, cosa cerchi>
   COSA PENSO: <i tuoi dubbi in questo momento, con le tue parole>
-Quando hai deciso scrivi DECISIONE: CONTATTO | COMPRO | LASCIO, e perché, in tre righe.
+Contattare chi propone, chiedere, trattare sono azioni (COSA FACCIO): la risposta arriva al turno dopo.
+Solo quando hai deciso davvero scrivi DECISIONE: COMPRO | LASCIO, e perché, in tre righe.
+All'ultimo turno, se non hai deciso, scrivi DECISIONE: ASPETTO e cosa ti manca per decidere.
+Cita una fonte solo se l'hai aperta davvero in questa conversazione.
 Hai al massimo <N> turni e <M> azioni online per turno.
 ```
 

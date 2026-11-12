@@ -4,7 +4,7 @@ Uso: check_blind.py <cartella-output | transcript.jsonl> [--siti host1,host2]
 Con --siti (prova con Chrome): ammessi anche gli strumenti Chrome di run_blind.sh, ma ogni navigate deve
 restare su quegli host; vietati gli strumenti che leggono le altre schede o il browser.
 Esito CIECO se: solo WebSearch/WebFetch usati, nessuno strumento disponibile oltre a quelli (a parte ToolSearch/consegna),
-nessun connettore mcp__. Riporta ricerche, fetch, token, costo. Exit 0 = cieco, 1 = sospetto."""
+nessun connettore mcp__, nessun messaggio di altre sessioni entrato. Riporta ricerche, fetch, token, costo. Exit 0 = cieco, 1 = sospetto."""
 import json, sys, os
 from urllib.parse import urlparse
 a = sys.argv[1:]
@@ -15,7 +15,7 @@ ALLOWED = {"WebSearch", "WebFetch"}
 C = "mcp__claude-in-chrome__"
 if siti: ALLOWED |= {C + t for t in "tabs_context_mcp tabs_create_mcp tabs_close_mcp navigate computer read_page get_page_text find form_input resize_window".split()}
 IGNORED = {"ToolSearch", "SubagentHandback"}
-ids, blocked, used, navs, queries, fetches, init_tools, model, res = {}, [], [], [], [], [], [], None, {}
+ids, blocked, used, navs, queries, fetches, init_tools, model, res, intrusi = {}, [], [], [], [], [], [], None, {}, []
 for line in open(p):
     try: e = json.loads(line)
     except Exception: continue
@@ -33,7 +33,10 @@ for line in open(p):
             if b.get("type") == "tool_result" and "No such tool available" in str(b.get("content")):
                 n = ids.get(b.get("tool_use_id")); used.remove(n); blocked.append(n)
     elif e.get("type") == "result":
-        res = e
+        if (e.get("origin") or {}).get("kind") == "peer": intrusi.append((e["origin"].get("name"), e["origin"].get("body", "")[:80]))
+        if not res: res = e  # il primo turno è quello del tester
+    if "cross-session-message" in line or '"kind": "peer"' in line or '"kind":"peer"' in line:
+        if not intrusi: intrusi.append(("?", "messaggio fra sessioni nel transcript"))
 bad_used = sorted({u for u in used if u not in ALLOWED | IGNORED})
 extra_avail = sorted({t for t in init_tools if t not in ALLOWED | IGNORED})
 u = res.get("usage", {}) or {}
@@ -49,7 +52,8 @@ fuori = [n for n in navs if n not in ("back", "forward") and host(n) not in siti
 print(f"token ingresso (incl. cache): {tok_in}  uscita: {u.get('output_tokens')}  costo listino: ${res.get('total_cost_usd')}")
 if siti and fuori: print("SOSPETTO: Chrome fuori dai siti ammessi:", fuori)
 if siti and not navs: print("ATTENZIONE: prova con Chrome ma nessuna pagina aperta")
-ok = not bad_used and not extra_avail and not (siti and fuori)
+ok = not bad_used and not extra_avail and not (siti and fuori) and not intrusi
+if intrusi: print("SOSPETTO: messaggio di un'altra sessione entrato nel tester:", intrusi)
 interrotto = os.path.join(os.path.dirname(p), "INTERROTTO")
 if os.path.exists(interrotto): print("ATTENZIONE: giro INTERROTTO dal tetto di run_blind.sh ->", open(interrotto).read().strip(), "-> risposta incompleta")
 elif res.get("is_error", False) or not res: print("ATTENZIONE: giro troncato o senza esito (", res.get("subtype"), ") -> risposta incompleta, non vale come giudizio pieno")
