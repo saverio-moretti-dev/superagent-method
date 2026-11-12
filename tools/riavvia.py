@@ -19,7 +19,12 @@ Guardie (tutte, ricontrollate subito prima di ogni invio):
      claude agents dà «busy» per tutto il tempo in cui un comando in sottofondo è vivo (misurato 11/11 17:46-17:50:
      SUP fermo, http.server 4322 lanciato prima di un /clear → busy per 4 min; ogni riavvio del SUP rifiutato);
   c. al massimo un riavvio per scheda ogni 5 minuti (file di blocco ~/.claude/consumo/riavvii/<tty>.json);
-  d. nessun altro riavvio in attesa per la stessa scheda (ps: altri riavvia.py o il vecchio riavvia.sh).
+  d. nessun altro riavvio in attesa per la stessa scheda (ps: altri riavvia.py o il vecchio riavvia.sh);
+  g. (12/11) nessun sotto-agente vivo o dubbio (<sid>/subagents/*: non «finished» e scritto da < 30 min) e, prima di
+     /exit, nessun comando in sottofondo (figli del processo claude, esclusi caffeinate/MCP/LSP): con uno vivo /exit
+     apre «Background work is running», e un tasto scritto dopo può chiudere la sessione. Se la finestra compare
+     comunque: uscita 6, niente scritto.
+Dopo /clear (--sup) basta una quiete di QUIETE_CLEAR_S se la trascrizione nuova ha solo /clear + hook (era ~21 s).
 Una guardia rossa = niente invio, motivo stampato e scritto in ~/.claude/consumo/riavvii.log (uscita 2).
 Con --attendi ogni CAMBIO di guardia rossa si scrive nel log con l'ora (ATTESA …), così si vede perché non è partito.
 
@@ -56,6 +61,12 @@ SVUOTA = "\x0b\x15"          # Ctrl-K + Ctrl-U: cancella a destra e a sinistra d
 SEGNO = "QZXRIAVVIO"         # segno scritto dopo lo svuotamento: deve restare da solo nella casella
 ATTESA_OCCUPATA_S = 600      # quanto aspettare che un comando in coda parta, se la sessione lavora
 QUIETE_S = 20          # trascrizione ferma da almeno tanto per credere al «turno finito»
+QUIETE_CLEAR_S = 2     # dopo /clear, se la trascrizione nuova ha solo /clear + hook + metadati (nessun turno): basta
+                       # questo. Misura 12/11 20:20: QUIETE_S pieno faceva perdere ~21 s fra «CLEAR OK» e «/riparti»
+                       # (il SUP risulta busy per il riavvia.py stesso in sottofondo; trascrizione ferma da 20:20:47)
+SOTTOAGENTE_VIVO_S = 120    # trascrizione di un sotto-agente scritta da meno di tanto e non conclusa = vivo
+SOTTOAGENTE_DUBBIO_S = 1800 # non conclusa e scritta da meno di 30 min = dubbio → niente riavvio (D4 del 12/11)
+PROCESSI_NORMALI = ("caffeinate", "node", "clangd", "npm", "npx", "uv", "uvx", "python", "python3")  # figli fissi (MCP, LSP)
 FINE_TURNO = ("turn_duration", "stop_hook_summary")
 SOLO_DATI = {"last-prompt", "tools-used", "bridge-session", "file-history-snapshot", "summary", "custom-title",
              "ai-title", "agent-name", "mode", "session-owner", "cost-state", "atis-latch"}  # voci che non sono lavoro; ogni altro tipo (anche sconosciuto) conta come lavoro
@@ -153,8 +164,6 @@ def turno_finito(sid, dopo_clear=False):
     if not f:
         return (True, "trascrizione non ancora creata dopo /clear") if dopo_clear else (False, "trascrizione non trovata")
     ferma = time.time() - os.path.getmtime(f)
-    if ferma < QUIETE_S:
-        return False, f"trascrizione scritta {int(ferma)} s fa"
     with open(f, "rb") as h:
         h.seek(max(0, os.path.getsize(f) - 262144))
         righe = h.read().decode("utf-8", "replace").splitlines()
@@ -164,8 +173,103 @@ def turno_finito(sid, dopo_clear=False):
             voci.append(json.loads(r))
         except ValueError:
             continue
+    quiete = QUIETE_CLEAR_S if dopo_clear and solo_clear(voci) else QUIETE_S
+    if ferma < quiete:
+        return False, f"trascrizione scritta {int(ferma)} s fa (serve {quiete} s)"
     ok, perche = stato_voci(voci, dopo_clear)
     return ok, f"{perche}, ferma da {int(ferma)} s" if ok else perche
+
+
+def solo_clear(voci):
+    """True se la trascrizione (nuova, dopo /clear) non ha nessun turno: solo metadati, allegati degli hook
+    (SessionStart:clear), voci «utente» di comando locale e la voce system local_command. Basta una voce assistant,
+    un messaggio vero o un tipo sconosciuto e torna False (si aspetta la quiete piena)."""
+    visto_clear = False
+    for d in voci:
+        t = d.get("type")
+        if t in SOLO_DATI or t == "attachment" or t == "artifact-comment-monitor":
+            continue
+        if t == "system" and d.get("subtype") == "local_command":
+            visto_clear = True
+            continue
+        if t == "user" and _locale(d):
+            continue
+        return False
+    return visto_clear
+
+
+def sottoagenti(sid):
+    """(vivi, dubbi): sotto-agenti della sessione sid dalle loro trascrizioni <sid>/subagents/*.jsonl.
+    Concluso = .meta.json con finished true, oppure ultima voce assistant con stop_reason end_turn. Non concluso e scritto da < SOTTOAGENTE_VIVO_S = vivo;
+    non concluso e scritto da < SOTTOAGENTE_DUBBIO_S = dubbio. claude agents non li lega al padre (D4, 12/11)."""
+    f = trascrizione(sid)
+    if not f:
+        return [], []
+    vivi, dubbi = [], []
+    for s in glob.glob(os.path.join(f[:-len(".jsonl")], "subagents", "*.jsonl")):
+        eta = time.time() - os.path.getmtime(s)
+        if eta >= SOTTOAGENTE_DUBBIO_S:
+            continue
+        try:  # <agente>.meta.json ha "finished": true a lavoro concluso (visto 12/11 23:17): segnale più sicuro
+            with open(s[:-len(".jsonl")] + ".meta.json", encoding="utf-8") as h:
+                if json.load(h).get("finished") is True:
+                    continue
+        except (OSError, ValueError):
+            pass
+        ultima = None
+        try:
+            with open(s, "rb") as h:
+                h.seek(max(0, os.path.getsize(s) - 65536))
+                for r in h.read().decode("utf-8", "replace").splitlines():
+                    try:
+                        d = json.loads(r)
+                    except ValueError:
+                        continue
+                    if d.get("type") in ("user", "assistant"):
+                        ultima = d
+        except OSError:
+            continue
+        m = (ultima or {}).get("message") or {}
+        if ultima and ultima.get("type") == "assistant" and isinstance(m, dict) and m.get("stop_reason") == "end_turn":
+            continue
+        nome = os.path.basename(s)[:-len(".jsonl")]
+        (vivi if eta < SOTTOAGENTE_VIVO_S else dubbi).append(f"{nome} ({int(eta)} s)")
+    return vivi, dubbi
+
+
+def figli_lavoro(pid):
+    """Processi figli della sessione che sono lavoro in sottofondo (comandi della shell, Monitor…), esclusi i fissi
+    (caffeinate, server MCP, LSP). Con uno di questi vivo /exit apre «Background work is running» (bug 12/11)."""
+    try:
+        out = subprocess.run(["pgrep", "-lP", str(pid)], capture_output=True, text=True, timeout=5).stdout
+    except subprocess.SubprocessError:
+        return ["pgrep non risponde"]
+    figli = []
+    for riga in out.splitlines():
+        p, _, nome = riga.strip().partition(" ")
+        if nome and os.path.basename(nome) not in PROCESSI_NORMALI:
+            figli.append(f"{nome} {p}")
+    return figli
+
+
+def g_sottofondo(nome, tty, uscita):
+    """Rossa se la sessione ha sotto-agenti vivi o dubbi (sempre) o, prima di /exit, comandi in sottofondo vivi."""
+    s = sessione(nome)
+    if isinstance(s, Exception):
+        return f"claude agents non risponde ({s})"
+    for x in s:
+        if tty_di(x["pid"]) != tty_corto(tty):
+            continue
+        vivi, dubbi = sottoagenti(x.get("sessionId"))
+        if vivi:
+            return f"{nome} ha sotto-agenti vivi: {', '.join(vivi)}"
+        if dubbi:
+            return f"{nome} ha sotto-agenti forse vivi (non conclusi): {', '.join(dubbi)} — nel dubbio niente riavvio"
+        if uscita:
+            f = figli_lavoro(x["pid"])
+            if f:
+                return f"{nome} ha lavoro in sottofondo ({', '.join(f)}): /exit aprirebbe «Background work is running» — prima TaskStop"
+    return None
 
 
 def g_ferma(nome, tty, dopo_clear=False):
@@ -251,8 +355,9 @@ def superato(nome, tty, sid0, t0):
     return None
 
 
-def guardie(nome, tty, *, nota=True, t0=None):
-    for g in ([lambda: g_nota(nome, t0)] if nota else []) + [lambda: g_ferma(nome, tty), lambda: g_blocco(tty), lambda: g_altri(tty)]:
+def guardie(nome, tty, *, nota=True, t0=None, uscita=False):
+    for g in ([lambda: g_nota(nome, t0)] if nota else []) + [lambda: g_ferma(nome, tty), lambda: g_sottofondo(nome, tty, uscita),
+                                                             lambda: g_blocco(tty), lambda: g_altri(tty)]:
         motivo = g()
         if motivo:
             return motivo
@@ -288,15 +393,20 @@ LEGGI_SCHEDA = [
 ]
 
 
-def leggi_casella(tty):
-    """Righe della casella d'ingresso come appaiono ora sullo schermo della scheda (None se non si legge):
-    dall'ultima riga che comincia con «❯» fino al bordo «───» sotto."""
+def leggi_schermo(tty):
+    """Righe della storia della scheda (lista vuota se non si legge)."""
     try:
         r = subprocess.run(["osascript", *[x for riga in LEGGI_SCHEDA for x in ("-e", riga)], "/dev/" + tty_corto(tty)],
                            capture_output=True, text=True, timeout=15)
     except subprocess.SubprocessError:
-        return None
-    righe = r.stdout.splitlines()
+        return []
+    return r.stdout.splitlines()
+
+
+def leggi_casella(tty):
+    """Righe della casella d'ingresso come appaiono ora sullo schermo della scheda (None se non si legge):
+    dall'ultima riga che comincia con «❯» fino al bordo «───» sotto."""
+    righe = leggi_schermo(tty)
     inizio = max((i for i, l in enumerate(righe) if l.startswith("❯")), default=None)
     if inizio is None:
         return None
@@ -427,13 +537,21 @@ def attendi_comando(nome, tty, sid, nome_cmd, t_invio, testo=None):
 
 
 def attendi_ferma(nome, tty, dopo_clear, secondi):
-    motivo = None
-    fine = time.time() + secondi
+    """Aspetta che la sessione sia ferma. Ogni CAMBIO di motivo va nel log con l'ora (debito 12/11 20:21: senza, i
+    21 s persi dopo /clear non avevano spiegazione). Dopo /clear si ricontrolla ogni secondo, prima ogni 5."""
+    motivo, prima, t_in = None, None, time.time()
+    fine = t_in + secondi
     while time.time() < fine:
         motivo = g_ferma(nome, tty, dopo_clear=dopo_clear)
         if not motivo:
+            if prima:
+                registra(f"FERMA {nome} {tty_corto(tty)} dopo {time.time() - t_in:.1f} s")
             return None
-        time.sleep(5)
+        tipo = "".join(c for c in motivo if not c.isdigit())
+        if tipo != prima:
+            registra(f"ATTESA {'DOPO /clear ' if dopo_clear else ''}{nome} {tty_corto(tty)}: {motivo}")
+            prima = tipo
+        time.sleep(1 if dopo_clear else 5)
     return motivo or "tempo scaduto"
 
 
@@ -472,7 +590,7 @@ def main(a):
     sid0 = sid_su(nome, tty) if attendi else None
     prima = None
     while True:
-        motivo = guardie(nome, tty, t0=t0)
+        motivo = guardie(nome, tty, t0=t0, uscita=not sup)
         tipo = "".join(c for c in (motivo or "") if not c.isdigit())  # «scritta 8 s fa» e «19 s fa» = stessa guardia
         if attendi and tipo != prima:  # ogni cambio di guardia nel log, con l'ora
             registra(f"ATTESA {nome} {tty_corto(tty)}: {motivo or 'guardie verdi'}")
@@ -543,6 +661,13 @@ def main(a):
             break
     if not prova and claude_su(tty):
         # niente «2» alla cieca (il vecchio script lo scriveva: se la sessione era viva diventava un prompt)
+        schermo = "\n".join(leggi_schermo(tty)[-30:])
+        if "Background work is running" in schermo or "stop tasks" in schermo:
+            # bug 12/11: la finestra resta aperta; un tasto qualunque (es. «3» scritto dopo) può chiudere la sessione
+            registra(f"ANCORA VIVA {nome} {tty_corto(tty)} dopo /exit: finestra «Background work is running» aperta. "
+                     "NON rispondere a caso: Esc nella scheda per tornare alla sessione, poi TaskStop e nuovo riavvio")
+            esci(f"{nome}: /exit ha aperto «Background work is running» su {tty_corto(tty)}. Non scrivere niente: "
+                 "Esc nella scheda, ferma i task in sottofondo, poi rilancia", 6)
         registra(f"ANCORA VIVA {nome} {tty_corto(tty)} dopo /exit")
         esci(f"{nome} ancora viva dopo /exit: guarda la scheda {tty_corto(tty)}", 2)
     q = cartella.replace("'", "'\\''")
