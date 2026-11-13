@@ -11,7 +11,9 @@ Procedura (nessun passo dell'utente, mai kill):
      sul foglio di conferma; finestra con altre schede → non si chiude (servirebbe il primo piano) e lo dice;
   5. dopo 20 s verifica che il pid vecchio non ci sia più: ne deve restare una sola.
 
-Uso:  doppia.py NOME [--prova] [--apri CMD]...
+Uso:  doppia.py NOME [--prova] [--apri CMD]... [--avvio TESTO]
+      --avvio TESTO  primo messaggio della copia al posto di «/riparti NOME» (prove: una copia di prova che fa /riparti
+                     scrive al coordinatore, visto il 13/11)
 Uscita: 0 fatto (una sola sessione, la copia), 2 copia aperta ma la prima resta aperta, 3 NOME non trovato,
         4 copia non partita (la prima resta), 5 esiste già una copia viva, 1 errore/Terminal muto.
 """
@@ -116,11 +118,14 @@ def main(argv):
     if not argv or argv[0].startswith("-"):
         print(__doc__)
         return 1
-    nome, prova, cmd_apri = argv[0], "--prova" in argv, []
+    nome, prova, cmd_apri, avvio = argv[0], "--prova" in argv, [], None
     i = 1
     while i < len(argv):
         if argv[i] == "--apri" and i + 1 < len(argv):
             cmd_apri.append(argv[i + 1])
+            i += 1
+        elif argv[i] == "--avvio" and i + 1 < len(argv):
+            avvio = argv[i + 1]
             i += 1
         i += 1
     try:
@@ -137,7 +142,7 @@ def main(argv):
         print(f"{nome2} esiste già: nessuna nuova copia")
         return 5
     pid, cartella, tty = s["pid"], s.get("cwd") or CASA, tty_di(s["pid"])
-    comando = f"{CLAUDE} -n {nome2} --disallowedTools=AskUserQuestion \"/riparti {nome}\""
+    comando = f"{CLAUDE} -n {nome2} --disallowedTools=AskUserQuestion \"{avvio or '/riparti ' + nome}\""
     if prova:
         print(f"(prova) aprirei {nome2} in {cartella}: {comando}")
         print(f"(prova) poi chiuderei {nome} (pid {pid}, {tty}) se sola nella sua finestra")

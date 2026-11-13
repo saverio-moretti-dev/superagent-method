@@ -8,7 +8,8 @@ ogni ~2 minuti (launchd o giro del coordinatore), legge lo schermo visibile di o
   - dialogo noto, fermo da almeno SOGLIA_S  → risponde con l'opzione nota (tabella DIALOGHI), mai concedendo permessi:
         uscita con lavoro in sottofondo → «Stay»        (nessun lavoro perso; chi voleva uscire riprova a lavoro finito)
         permesso «Do you want to …»     → «No …»        (la sessione riprende e chiede per la via giusta)
-        cartella da approvare           → «Yes, I trust this folder» solo sotto le radici date con --radice, altrimenti «No»
+        cartella da approvare           → «Yes, I trust this folder» solo sotto le radici date con --radice, altrimenti
+                                          solo avviso («No, exit» chiuderebbe la sessione)
         impostazioni gestite            → nessun tasto, solo avviso (una sessione nuova troverebbe lo stesso dialogo)
   - dialogo sconosciuto, o 2 risposte che non lo hanno chiuso → doppia.py NOME (sessione NOME-2 al posto della prima)
   - ogni azione → avviso al coordinatore (comando dato con --avvisa, che riceve il testo come ultimo argomento).
@@ -24,6 +25,7 @@ Uso:
   --apri CMD    passato a doppia.py (comando che apre una scheda: riceve NOME CARTELLA COMANDO)
   --no-doppia   nomi per cui non si apre mai la copia (es. il coordinatore, che ha la sua procedura): solo avviso
   --solo        controlla solo questi nomi (prove su sessioni usa e getta)
+  --avvio-copia primo messaggio della copia al posto di «/riparti NOME» (prove: la copia non deve scrivere a nessuno)
 
 Ogni osascript ha un tetto di 10 s (Terminal con molte finestre si è appeso per minuti su un comando solo).
 Stato fra un giro e l'altro: ~/.claude/sblocca/stato.json · log: ~/.claude/sblocca/sblocca.log
@@ -53,11 +55,10 @@ DIALOGHI = [
     ("uscita", re.compile(r"Background work is running"), lambda cwd, radici: r"^Stay\b"),
     ("impostazioni", re.compile(r"Yes, I trust these settings"), lambda cwd, radici: None),
     ("fiducia", re.compile(r"Yes, I trust this folder"),
-     lambda cwd, radici: r"^Yes, I trust this folder" if sotto(cwd, radici) else r"^No\b"),
+     lambda cwd, radici: r"^Yes, I trust this folder" if sotto(cwd, radici) else None),
     ("permesso", re.compile(r"Do you want to (proceed|make this edit|create|allow|run)"), lambda cwd, radici: r"^No\b"),
 ]
-SOLO_AVVISO = {"impostazioni"}
-OPZIONE = re.compile(r"^[\s│|]*(❯|>)?\s*(\d{1,2})\.\s+(.*?)[\s│|]*$")
+OPZIONE = re.compile(r"^[\s│|]*(❯|>|↑|↓)?\s*(\d{1,2})\.\s+(.*?)[\s│|]*$")
 BORDO = re.compile(r"^[\s╭╰│]*[─━]{8,}")
 PIEDE_MENU = re.compile(r"Enter to (select|confirm)|Esc to (cancel|go back|exit)|to navigate", re.I)
 
@@ -88,11 +89,12 @@ def osa(righe, *argomenti):
     return r.stdout
 
 
-SCHERMO = ["on run argv", 'tell application "Terminal"', "repeat with w in windows", "repeat with t in tabs of w",
-           "if tty of t is (item 1 of argv) then", "return contents of t", "end if", "end repeat", "end repeat",
-           "end tell", 'return ""', "end run"]
-SCRIVI = ["on run argv", 'tell application "Terminal"', "repeat with w in windows", "repeat with t in tabs of w",
-          "if tty of t is (item 1 of argv) then", "do script (item 2 of argv) in t", 'return "ok"', "end if",
+# Per indice, non «repeat with t in tabs»: lì «contents of t» è la scheda stessa (dereferenza di AppleScript), non il testo.
+SCHERMO = ["on run argv", 'tell application "Terminal"', "repeat with w in windows", "repeat with i from 1 to (count tabs of w)",
+           "if tty of tab i of w is (item 1 of argv) then", "return contents of tab i of w", "end if", "end repeat",
+           "end repeat", "end tell", 'return ""', "end run"]
+SCRIVI = ["on run argv", 'tell application "Terminal"', "repeat with w in windows", "repeat with i from 1 to (count tabs of w)",
+          "if tty of tab i of w is (item 1 of argv) then", "do script (item 2 of argv) in tab i of w", 'return "ok"', "end if",
           "end repeat", "end repeat", "end tell", 'return "scheda non trovata"', "end run"]
 
 
@@ -115,41 +117,81 @@ def casella_aperta(righe):
     return False
 
 
+def menu(coda):
+    """Menu aperto in fondo allo schermo → (opzioni [(posizione, etichetta)], posizione evidenziata) o ([], None).
+    Il menu è il blocco di righe non vuote attorno all'ultima riga «❯ …» che non è la casella d'ingresso. Se nel blocco
+    ci sono righe numerate («2. …») contano solo quelle (le altre sono a capo o descrizioni); altrimenti ogni riga è
+    un'opzione (es. il dialogo della cartella: «❯ No, exit» / «Yes, I trust this folder», senza numeri)."""
+    idx = max((i for i, l in enumerate(coda) if l.lstrip(" │").startswith("❯")), default=None)
+    if idx is None:
+        return [], None
+    a = idx
+    while a > 0 and coda[a - 1].strip() and not BORDO.match(coda[a - 1]):
+        a -= 1
+    b = idx
+    while b + 1 < len(coda) and coda[b + 1].strip() and not BORDO.match(coda[b + 1]) and not PIEDE_MENU.search(coda[b + 1]):
+        b += 1
+    blocco = list(range(a, b + 1))
+    numerate = [(i, OPZIONE.match(coda[i])) for i in blocco if OPZIONE.match(coda[i])]
+    if numerate:
+        opzioni = [(int(m.group(2)), m.group(3).strip()) for _, m in numerate]
+        evid = next((int(m.group(2)) for i, m in numerate if i == idx), None)
+    else:
+        righe = [coda[i].strip(" │").lstrip("❯").strip() for i in blocco]
+        opzioni = list(enumerate(righe, 1))
+        evid = blocco.index(idx) + 1
+    return opzioni, evid
+
+
 def classifica(righe, cwd="", radici=()):
-    """Dallo schermo visibile → None (nessun dialogo) oppure dict(chiave, opzioni, scelta, firma).
+    """Dallo schermo visibile → None (nessun dialogo) oppure dict(chiave, opzioni, evidenziata, scelta, firma).
     chiave «sconosciuto» = menu aperto che nessuna regola conosce; scelta None = non premere niente."""
     if not righe or casella_aperta(righe):
         return None
     coda = righe[-40:]
     testo = "\n".join(coda)
-    opzioni = []
-    for l in coda:
-        m = OPZIONE.match(l)
-        if m and m.group(3):
-            n = int(m.group(2))
-            if opzioni and n != opzioni[-1][0] + 1:
-                opzioni = []          # lista numerata del discorso, non il menu: ricomincia
-            if n == 1 or opzioni:
-                opzioni.append((n, m.group(3).strip()))
+    opzioni, evid = menu(coda)
+
+    def esito(chiave, scelta):
+        return {"chiave": chiave, "opzioni": opzioni, "evidenziata": evid, "scelta": scelta,
+                "firma": chiave + "|" + "|".join(et for _, et in opzioni)}
     for chiave, segno, regola in DIALOGHI:
         if segno.search(testo):
             voluta = regola(cwd, radici)
-            scelta = None
-            if voluta:
-                scelta = next((n for n, et in opzioni if re.search(voluta, et)), None)
-                if scelta is None:
-                    chiave = chiave + "-senza-opzione"
-            return {"chiave": chiave, "opzioni": opzioni, "scelta": scelta,
-                    "firma": chiave + "|" + "|".join(et for _, et in opzioni)}
-    if len(opzioni) >= 2 and PIEDE_MENU.search(testo):
-        return {"chiave": "sconosciuto", "opzioni": opzioni, "scelta": None,
-                "firma": "sconosciuto|" + "|".join(et for _, et in opzioni)}
+            if not voluta:
+                return esito(chiave, None)
+            scelta = next((n for n, et in opzioni if re.search(voluta, et)), None)
+            return esito(chiave if scelta is not None and evid is not None else chiave + "-senza-opzione", scelta if evid else None)
+    if len(opzioni) >= 2 and evid is not None and PIEDE_MENU.search(testo):
+        return esito("sconosciuto", None)
     return None
+
+
+def tasti(d):
+    """Frecce dalla riga evidenziata all'opzione scelta; l'invio lo aggiunge `do script` (provato dal vivo 13/11)."""
+    passi = d["scelta"] - d["evidenziata"]
+    return ("\x1b[B" * passi if passi > 0 else "\x1b[A" * -passi) or ""
 
 
 def sessioni():
     out = subprocess.run([CLAUDE, "agents", "--json"], capture_output=True, text=True, timeout=30).stdout
     return json.loads(out or "[]")
+
+
+def non_registrate(lista):
+    """Processi claude con un tty che `claude agents` non elenca ancora: una sessione ferma sul dialogo della cartella
+    non è registrata finché non si risponde (visto dal vivo 13/11). Nome «?ttysNNN», cartella da lsof."""
+    noti = {s.get("pid") for s in lista}
+    out = subprocess.run(["ps", "-A", "-o", "pid=,tty=,comm="], capture_output=True, text=True, timeout=10).stdout
+    extra = []
+    for riga in out.splitlines():
+        p = riga.split(None, 2)
+        if len(p) == 3 and os.path.basename(p[2]) == "claude" and p[1] != "??" and int(p[0]) not in noti:
+            cwd = subprocess.run(["lsof", "-a", "-p", p[0], "-d", "cwd", "-Fn"], capture_output=True, text=True,
+                                 timeout=10).stdout
+            cwd = next((l[1:] for l in cwd.splitlines() if l.startswith("n")), "")
+            extra.append({"kind": "interactive", "pid": int(p[0]), "name": "?" + p[1], "cwd": cwd})
+    return extra
 
 
 def tty_di(pid):
@@ -190,6 +232,8 @@ def doppia(nome, a, prova):
     cmd = [sys.executable, os.path.join(QUI, "doppia.py"), nome]
     for x in a["apri"]:
         cmd += ["--apri", x]
+    if a["avvio"]:
+        cmd += ["--avvio", a["avvio"]]
     if prova:
         cmd.append("--prova")
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
@@ -201,12 +245,13 @@ def giro(a):
     nuovo, bloccati, adesso = {}, 0, time.time()
     try:
         lista = sessioni()
+        lista += non_registrate(lista)
     except (OSError, subprocess.SubprocessError, ValueError) as e:
         print(f"claude agents non risponde: {e}", file=sys.stderr)
         return 1
     for s in lista:
         nome, pid = s.get("name") or "", s.get("pid")
-        if s.get("kind") != "interactive" or not pid or (a["solo"] and nome.upper() not in a["solo"]):
+        if s.get("kind") != "interactive" or not pid or (a["solo"] and nome.upper() not in a["solo"] and not nome.startswith("?")):
             continue
         tty = tty_di(pid)
         if not tty or tty == "??":
@@ -234,7 +279,7 @@ def giro(a):
                 print(f"  (prova) premerei {d['scelta']} = «{etichetta}»")
                 continue
             prima["tentativi"] += 1
-            ok = scrivi(tty, str(d["scelta"]))
+            ok = scrivi(tty, tasti(d))
             time.sleep(4)
             dopo = classifica(schermo(tty) or [], s.get("cwd") or "", a["radici"])
             chiuso = ok and (not dopo or dopo["firma"] != d["firma"])
@@ -247,13 +292,16 @@ def giro(a):
             continue
         # Solo avviso: dialogo noto senza risposta prevista (una copia lo ritroverebbe) o nome escluso dalla copia.
         # Copia: dialogo sconosciuto, opzione voluta non trovata, o TENTATIVI_MAX risposte che non lo hanno chiuso.
-        if d["chiave"] in SOLO_AVVISO or nome.upper() in a["no_doppia"]:
+        if (d["scelta"] is None and d["chiave"] != "sconosciuto" and not d["chiave"].endswith("-senza-opzione")) \
+                or nome.upper() in a["no_doppia"] or nome.startswith("?"):
             if not prima.get("avvisato"):
                 avvisa(a["avvisa"], f"Sblocco: {nome} fermo su «{d['chiave']}» da {int(fermo / 60)} min; "
                                     f"nessuna risposta automatica prevista, serve il coordinatore.", a["prova"])
                 prima["avvisato"] = True
             continue
         codice, uscita = doppia(nome, a, a["prova"])
+        if codice == 0 and not a["prova"]:
+            bloccati -= 1
         registra(f"{nome} {tty} {d['chiave']}: doppia.py → {codice} {uscita[-200:]!r}")
         if not a["prova"]:
             nuovo.pop(tty, None)
@@ -267,14 +315,14 @@ def giro(a):
 
 
 def argomenti(argv):
-    a = {"prova": False, "soglia": 100, "radici": [], "avvisa": [], "apri": [], "no_doppia": set(), "solo": set(),
+    a = {"prova": False, "soglia": 100, "radici": [], "avvisa": [], "apri": [], "no_doppia": set(), "solo": set(), "avvio": None,
          "leggi": None}
     i = 0
     while i < len(argv):
         x = argv[i]
         if x == "--prova":
             a["prova"] = True
-        elif x in ("--soglia", "--radice", "--avvisa", "--apri", "--no-doppia", "--solo", "--leggi") and i + 1 < len(argv):
+        elif x in ("--soglia", "--radice", "--avvisa", "--apri", "--no-doppia", "--solo", "--leggi", "--avvio-copia") and i + 1 < len(argv):
             i += 1
             v = argv[i]
             if x == "--soglia":
@@ -287,6 +335,8 @@ def argomenti(argv):
                 a["apri"].append(v)
             elif x == "--no-doppia":
                 a["no_doppia"].add(v.upper())
+            elif x == "--avvio-copia":
+                a["avvio"] = v
             elif x == "--solo":
                 a["solo"].add(v.upper())
             else:

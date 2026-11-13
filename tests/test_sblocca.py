@@ -14,8 +14,12 @@ USCITA = ["", BORDO, " Background work is running", " The following will stop wh
           " ❯ 1. Exit and stop tasks", "   2. Move to background and exit", "   3. Stay", "", " Enter to confirm · Esc to cancel"]
 PERMESSO = [BORDO, " Bash command", "   rm -rf build", "", " Do you want to proceed?", " ❯ 1. Yes",
             "   2. Yes, and don't ask again for rm commands", "   3. No, and tell Claude what to do differently (esc)"]
-FIDUCIA = [" Accessing workspace:", " /tmp/prova", "", " Quick safety check: Is this a project you created or one you trust?",
-           " ❯ 1. Yes, I trust this folder", "   2. No, continue without these permissions", "", " Enter to confirm · Esc to cancel"]
+# Copiato dallo schermo vero (13/11, v2.1.325): opzioni senza numero, evidenziata «No, exit».
+FIDUCIA = [" Accessing workspace:", "", " /tmp/prova", "", " Quick safety check: Is this a project you created or one you trust?",
+           "", " Claude Code'll be able to read, edit, and execute files here.", "", " Security guide", "",
+           " ❯ No, exit", "   Yes, I trust this folder", "", " Enter to confirm · Esc to cancel"]
+CASELLA_VERA = ["⚠ Your login expires in 2 days", "", "─" * 64 + " PROVA ─", '❯ Try "how do I log an error?"', "─" * 80,
+                "  consumo: in attesa del primo messaggio"]
 IMPOSTAZIONI = [" Managed settings require approval", " ❯ 1. Yes, I trust these settings", "   2. No, exit Claude Code"]
 MENU = [" Which plot do you prefer?", " ❯ 1. Plot A", "   2. Plot B", "   3. Type something.", "", " Enter to select · ↑/↓ to navigate · Esc to cancel"]
 DISCORSO = ["● Ecco i passi:", "  1. leggere", "  2. scrivere", "  Do you want to proceed with this plan?", ""] + CASELLA
@@ -39,9 +43,20 @@ class Classifica(unittest.TestCase):
         self.assertEqual((d["chiave"], d["scelta"]), ("permesso", 3))
 
     def test_fiducia_radice(self):
-        self.assertEqual(sblocca.classifica(FIDUCIA, "/tmp/prova", ["/tmp"])["scelta"], 1)
-        self.assertEqual(sblocca.classifica(FIDUCIA, "/etc", ["/tmp"])["scelta"], 2)
-        self.assertEqual(sblocca.classifica(FIDUCIA, "/tmpx", ["/tmp"])["scelta"], 2)   # prefisso non è radice
+        d = sblocca.classifica(FIDUCIA, "/tmp/prova", ["/tmp"])
+        self.assertEqual((d["scelta"], d["evidenziata"], sblocca.tasti(d)), (2, 1, "\x1b[B"))
+        self.assertIsNone(sblocca.classifica(FIDUCIA, "/etc", ["/tmp"])["scelta"])      # fuori: solo avviso
+        self.assertIsNone(sblocca.classifica(FIDUCIA, "/tmpx", ["/tmp"])["scelta"])     # prefisso non è radice
+
+    def test_casella_vera(self):
+        self.assertIsNone(sblocca.classifica(CASELLA_VERA))
+
+    def test_tasti_su(self):
+        d = sblocca.classifica(USCITA)
+        self.assertEqual(sblocca.tasti(d), "\x1b[B\x1b[B")
+        d["evidenziata"] = 3
+        d["scelta"] = 1
+        self.assertEqual(sblocca.tasti(d), "\x1b[A\x1b[A")
 
     def test_impostazioni_non_tocca(self):
         d = sblocca.classifica(IMPOSTAZIONI)
@@ -58,6 +73,11 @@ class Classifica(unittest.TestCase):
     def test_opzione_mancante(self):
         d = sblocca.classifica([" Background work is running", " ❯ 1. Exit and stop tasks", "   2. Something new"])
         self.assertEqual((d["chiave"], d["scelta"]), ("uscita-senza-opzione", None))
+
+    def test_menu_con_freccia(self):   # /model vero: «↑ 3.» in cima alla lista visibile
+        d = sblocca.classifica([" Select model", "   ↑ 3.  Fable", "     4.  Sonnet", "   ❯ 5.  Haiku ✔", "      … +1 model",
+                                " Enter to set as default · Esc to cancel"])
+        self.assertEqual(([n for n, _ in d["opzioni"]], d["chiave"]), ([3, 4, 5], "sconosciuto"))
 
     def test_vuoto(self):
         self.assertIsNone(sblocca.classifica([]))
