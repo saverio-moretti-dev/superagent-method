@@ -11,7 +11,13 @@ Coordinatore (nomi in `coordinatori`), soglie 150/175/200K:
   trascrive nella nota i messaggi arrivati e non letti, mette in pausa la coda (sup.py pausa) e lancia staccato
   riavvia.py NOME TTY --sup --attendi 3. Se il riavvio fallisce toglie la pausa (sup.py riprendi). Il coordinatore
   non lancia mai riavvia.py a turno aperto.
-Agenti (soglie 150/200K): avviso >=150K, sollecito >=200K. Nessun blocco.
+Agenti (soglie 150/200K; G1 B5, 13/11): avviso >=150K, sollecito >=200K; >=200K PreToolUse nega tutto tranne gli
+  strumenti del passaggio e a fine turno, senza nota, rimanda indietro. Riavvio a FINE TURNO a qualunque K se: nota
+  NOME.md fresca con riga 2 «nome: NOME», nessun lavoro in sottofondo vivo (vivi.py), sessione con tty. Lancia staccato
+  riavvia.py NOME TTY CARTELLA --attendi 3 (senza --sup, niente pausa). Il riavvio tocca solo la sessione dell'hook.
+Un solo riavvio per sessione: firma = mtime della nota OPPURE stessa sessione entro firma_s (default 15 min) OPPURE
+  processo di riavvio ancora vivo (riavvio-NOME.pid). riavvia.py uscita 3 (sessione gia' sostituita) = esito buono:
+  firma tenuta, niente «riprendi» (13/11 22:38: il FERMA di riavvia.py fa un turno in piu' -> secondo Stop -> doppio lancio).
 
 Spegnimento d'emergenza: esiste il file `off_file` (default ~/.claude/consumo/contesto-guardia.off) oppure
 CONTESTO_GUARDIA=0 -> l'hook esce subito senza fare nulla, senza toccare settings.json.
@@ -35,6 +41,9 @@ DEF = {
     "env_riavvio": {},       # variabili in piu' per riavvia.py (es. RIAVVIA_PROVA=1 nelle prove)
     "attendi_min": 3,
     "nota_fresca_s": 600,
+    "firma_s": 900,
+    "vivi": os.path.join(QUI, "vivi.py"),
+    "riavvii_log": f"{HOME}/.claude/consumo/riavvii.log",
 }
 SKILL_OK = {"passaggio", "riparti"}
 STRUMENTI_OK = {"Read", "Grep", "Glob", "LS", "TaskStop", "TaskList", "TaskGet", "TaskOutput", "CronList", "CronDelete",
@@ -181,7 +190,9 @@ def strumento_ammesso(nome, inp):
 
 
 def tty_claude():
-    """tty della sessione claude che ha lanciato l'hook (primo antenato con un tty)."""
+    """tty della sessione claude che ha lanciato l'hook (primo antenato con un tty). CG_TTY: solo prove."""
+    if os.environ.get("CG_TTY"):
+        return os.environ["CG_TTY"]
     p = os.getpid()
     for _ in range(12):
         try:
@@ -198,6 +209,88 @@ def tty_claude():
     return ""
 
 
+def claude_pid():
+    """pid del processo claude che ha lanciato l'hook (primo antenato che e' claude). CG_PID: solo prove."""
+    if os.environ.get("CG_PID"):
+        return os.environ["CG_PID"]
+    p = os.getppid()
+    for _ in range(12):
+        try:
+            out = subprocess.run(["ps", "-o", "ppid=,command=", "-p", str(p)], capture_output=True, text=True, timeout=3).stdout.split(None, 1)
+        except subprocess.SubprocessError:
+            return ""
+        if len(out) < 2:
+            return ""
+        if os.path.basename(out[1].split()[0]) == "claude" or "/claude " in out[1] + " ":
+            return str(p)
+        p = int(out[0])
+        if p <= 1:
+            return ""
+    return ""
+
+
+def lavoro_vivo(c):
+    """Testo dei lavori in sottofondo vivi della sessione (vivi.py --pid), '' se nessuno; dubbio -> vivo."""
+    pid = claude_pid()
+    if not pid:
+        return "processo claude non trovato"
+    try:
+        r = subprocess.run([sys.executable, c["vivi"], "--pid", pid, "--json"], capture_output=True, text=True, timeout=20)
+        lista = json.loads(r.stdout or "[]") if r.returncode == 0 else None
+    except (subprocess.SubprocessError, OSError, ValueError) as e:
+        return f"vivi.py: {e}"
+    if lista is None:
+        return f"vivi.py rc={r.returncode}"
+    return ", ".join(f"{x.get('kind')} {x.get('id') or x.get('pid')}" for x in lista)
+
+
+def registra_riavvii(c, msg):
+    try:
+        with open(c["riavvii_log"], "a", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + "GUARDIA " + msg + "\n")
+    except OSError:
+        pass
+
+
+def firma_path(c, nome):
+    return os.path.join(c["stato_dir"], f"riavvio-{nome}.json")  # per nome: la sessione nuova ha un altro id
+
+
+def gia_lanciato(c, nome, sid, nota):
+    """Motivo per NON rilanciare ('' = si puo'): stessa nota, stessa sessione da poco, o riavvio ancora in corso."""
+    try:
+        with open(firma_path(c, nome), encoding="utf-8") as f:
+            g = json.load(f)
+    except (OSError, ValueError):
+        return ""
+    if g.get("nota") == f"{os.path.getmtime(nota):.0f}":
+        return "gia' lanciato per questa nota"
+    if g.get("sid") == sid and time.time() - g.get("t", 0) < c["firma_s"]:
+        return "gia' lanciato per questa sessione"
+    pid = g.get("pid")
+    if pid:
+        try:
+            os.kill(int(pid), 0)
+            return f"riavvio ancora in corso (pid {pid})"
+        except (OSError, ValueError):
+            pass
+    return ""
+
+
+def nota_valida(c, nome, nota):
+    """True se la nota esiste, e' fresca e la riga 2 dice «nome: NOME»."""
+    if not os.path.exists(nota) or time.time() - os.path.getmtime(nota) >= c["nota_fresca_s"]:
+        return False
+    try:
+        with open(nota, encoding="utf-8") as f:
+            f.readline()
+            riga2 = f.readline()
+    except OSError:
+        return False
+    m = re.match(r"\s*nome:\s*([^\s·]+)", riga2)
+    return bool(m) and m.group(1).upper() == nome.upper()
+
+
 def sup(c, *argomenti):
     if not c["sup_py"]:
         return 0, ""
@@ -211,34 +304,44 @@ def sup(c, *argomenti):
     return r.returncode, (r.stdout + r.stderr).strip()
 
 
-def lancia_riavvio(c, nome, sid, nota):
+def lancia_riavvio(c, nome, sid, nota, cartella=None):
+    """cartella None = coordinatore (--sup, trascrivi + pausa); altrimenti agente (/exit + claude -n in cartella)."""
     tty = tty_claude()
     if not tty:
         log(c, f"{nome}: tty non trovato, niente riavvio")
         return "tty della sessione non trovato: riavvio non lanciato (usa riavvia.py a mano a fine turno)"
-    rc, out = sup(c, "trascrivi", nota)
-    log(c, f"{nome}: trascrivi rc={rc} {out[:200]}")
-    rc, out = sup(c, "pausa", "riavvio automatico")
-    log(c, f"{nome}: pausa rc={rc}")
+    if cartella is None:
+        rc, out = sup(c, "trascrivi", nota)
+        log(c, f"{nome}: trascrivi rc={rc} {out[:200]}")
+        rc, out = sup(c, "pausa", "riavvio automatico")
+        log(c, f"{nome}: pausa rc={rc}")
     env = dict(os.environ, **{k: str(v) for k, v in c["env_riavvio"].items()})
     if c["plancia_dati"]:
         env["PLANCIA_DATI"] = c["plancia_dati"]
     with open(os.path.join(c["stato_dir"], "riavvio.log"), "a") as lf:
-        subprocess.Popen([sys.executable, os.path.abspath(__file__), "--esegui-riavvio", nome, tty],
-                         stdin=subprocess.DEVNULL, stdout=lf, stderr=lf, start_new_session=True, env=env)
+        p = subprocess.Popen([sys.executable, os.path.abspath(__file__), "--esegui-riavvio", nome, tty] + ([cartella] if cartella else []),
+                             stdin=subprocess.DEVNULL, stdout=lf, stderr=lf, start_new_session=True, env=env)
+    with open(firma_path(c, nome), "w", encoding="utf-8") as f:  # firma DOPO trascrivi (che riscrive la nota)
+        json.dump({"nota": f"{os.path.getmtime(nota):.0f}", "ora": time.strftime("%Y-%m-%d %H:%M:%S"), "t": time.time(),
+                   "sid": sid, "pid": p.pid}, f)
     log(c, f"{nome}: riavvio lanciato su {tty}")
+    registra_riavvii(c, f"{nome} {tty}: riavvio automatico lanciato dalla guardia ({'agente' if cartella else 'coordinatore'})")
     return ""
 
 
-def esegui_riavvio(nome, tty):
-    """Processo staccato: riavvia.py; se fallisce, toglie la pausa perche' la coda non resti ferma."""
+def esegui_riavvio(nome, tty, cartella=None):
+    """Processo staccato: riavvia.py; se fallisce, toglie la pausa (coordinatore) e la firma. Uscita 3 = gia' sostituita = ok."""
     c = cfg()
     t0 = time.time()
-    r = subprocess.run([sys.executable, c["riavvia"], nome, tty, "--sup", "--attendi", str(c["attendi_min"])],
+    arg = [cartella] if cartella else ["--sup"]
+    r = subprocess.run([sys.executable, c["riavvia"], nome, tty, *arg, "--attendi", str(c["attendi_min"])],
                        capture_output=True, text=True)
     log(c, f"{nome}: riavvia.py rc={r.returncode} in {time.time() - t0:.0f} s: {(r.stdout + r.stderr).strip()[-300:]}")
+    if r.returncode == 3:
+        log(c, f"{nome}: sessione gia' sostituita (uscita 3): esito buono, firma tenuta")
+        return
     if r.returncode != 0:
-        rc, out = sup(c, "riprendi")
+        rc, out = sup(c, "riprendi") if not cartella else (0, "")
         try:  # G5: firma tolta, al prossimo fine turno si riprova (riavvia.py ha la sua guardia dei 5 min)
             os.remove(os.path.join(c["stato_dir"], f"riavvio-{nome}.json"))
         except OSError:
@@ -254,7 +357,7 @@ def main():
         return
     if len(sys.argv) > 1:
         if sys.argv[1] == "--esegui-riavvio":
-            return esegui_riavvio(sys.argv[2], sys.argv[3])
+            return esegui_riavvio(sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else None)
         if sys.argv[1] == "--misura":
             t0 = time.perf_counter()
             n, k = misura(sys.argv[2])
@@ -277,18 +380,51 @@ def main():
         if coord:
             coordinatore(c, d, ev, s, nome, k, sid)
         else:
-            agente(ev, s, k, c["soglie_agente"])
+            agente(c, d, ev, s, nome, k, sid)
     finally:
         scrivi_stato(c, sid, s)
 
 
-def agente(ev, s, k, soglie):
-    a, b = soglie
+def agente(c, d, ev, s, nome, k, sid):
+    a, b = c["soglie_agente"]
+    nota = os.path.join(c["passaggi_dir"], f"{nome}.md")
+    if ev == "PreToolUse":
+        if k >= b and not strumento_ammesso(d.get("tool_name", ""), d.get("tool_input") or {}):
+            print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                  "permissionDecisionReason": f"BLOCCO CONTESTO {k}K (>= {b}K): niente lavoro nuovo. Ammessi solo: "
+                  "/passaggio (Skill), lettura, scrittura di .md, git, passaggi.py, TaskStop, SendMessage. "
+                  "Scrivi la nota e chiudi il turno: il riavvio parte da solo."}}))
+            log(c, f"{nome}: negato {d.get('tool_name')} a {k}K")
+        return
+    if ev == "Stop":
+        if nota_valida(c, nome, nota):
+            perche = gia_lanciato(c, nome, sid, nota)
+            if perche:
+                return
+            vivo = lavoro_vivo(c)
+            if vivo:
+                if ogni(s, "t_vivo", 600):
+                    log(c, f"{nome}: nota pronta ma lavoro vivo ({vivo[:200]}): niente riavvio")
+                    registra_riavvii(c, f"{nome}: riavvio automatico rimandato, lavoro in sottofondo vivo: {vivo[:200]}")
+                    print(json.dumps({"systemMessage": f"Riavvio rimandato: lavoro in sottofondo vivo ({vivo[:200]}). "
+                                      "Fermalo (TaskStop) o aspetta che finisca, poi chiudi il turno."}))
+                return
+            errore = lancia_riavvio(c, nome, sid, nota, d.get("cwd") or os.getcwd())
+            if errore:
+                print(json.dumps({"systemMessage": errore}))
+            return
+        if d.get("stop_hook_active"):
+            return
+        if k >= b and ogni(s, "t_stop", 600):
+            print(json.dumps({"decision": "block", "reason":
+                  f"CONTESTO {k}K: BLOCCO. Lascia finire i lavori vivi, poi /passaggio e chiudi il turno: "
+                  "il riavvio lo lancia l'hook (NON riavvia.py, NON chiederlo al coordinatore)."}))
+        return
     if ev not in ("UserPromptSubmit", "PostToolUse"):
         return
     if k >= b and (ev == "UserPromptSubmit" or ogni(s, "t_soll", 600)):
         esce(ev, f"CONTESTO {k}K (>= {b}K): /passaggio al primo punto sicuro (fine del passo, niente build o test a meta'), "
-                 "poi una riga al coordinatore «nota pronta, riavviami».")
+                 "poi fine turno: il riavvio parte da solo (gli strumenti di lavoro sono negati).")
     if a <= k < b and ogni(s, "t_avv", 1800):
         esce(ev, f"CONTESTO {k}K (>= {a}K): finito il lavoro in corso, /passaggio prima di cominciarne un altro.")
 
@@ -307,17 +443,9 @@ def coordinatore(c, d, ev, s, nome, k, sid):
     if ev == "Stop":
         fresca = os.path.exists(nota) and time.time() - os.path.getmtime(nota) < c["nota_fresca_s"]
         if fresca:
-            firma = f"{os.path.getmtime(nota):.0f}"
-            g = os.path.join(c["stato_dir"], f"riavvio-{nome}.json")  # per nome: la sessione nuova ha un altro id
-            try:
-                with open(g, encoding="utf-8") as f:
-                    if json.load(f).get("nota") == firma:
-                        return  # gia' lanciato per questa nota
-            except (OSError, ValueError):
-                pass
+            if gia_lanciato(c, nome, sid, nota):
+                return
             errore = lancia_riavvio(c, nome, sid, nota)
-            with open(g, "w", encoding="utf-8") as f:  # firma DOPO trascrivi (che riscrive la nota)
-                json.dump({"nota": f"{os.path.getmtime(nota):.0f}", "ora": time.strftime("%Y-%m-%d %H:%M:%S"), "sid": sid}, f)
             if errore:
                 print(json.dumps({"systemMessage": errore}))
             return
