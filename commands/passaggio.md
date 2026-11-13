@@ -73,9 +73,9 @@ nome: <NOME> · cartella: <cwd> · sessione: <primi 8 caratteri dell'id> · scri
 ```
 
 Poi:
-0. **Agenda prima della nota**: se hai `agende/<NOME>.md` nella hub, aggiornala (tappe, prossimi passi, decisioni, bug e soluzioni, una riga di cronologia), commit e push del solo file. La nota la cita come primo file del contesto.
+0. **Agenda prima della nota**: se hai `agende/<NOME>.md` nella hub, aggiornala (tappe, prossimi passi, decisioni, bug e soluzioni, una riga di cronologia), commit del solo file (push come sotto). La nota la cita come primo file del contesto.
 1. Se il lavoro ha cambiato lo stato del progetto e la repo ha una sua nota per il prossimo agente / staffetta
-   (vedi il suo `CLAUDE.md`), aggiorna anche quella in breve, come da regole della repo. Commit + push se è una repo git.
+   (vedi il suo `CLAUDE.md`), aggiorna anche quella in breve, come da regole della repo. Commit se è una repo git; il push lo fai solo se nessun coordinatore lo lancia per te (se c'è, gli dici «push pronto»).
 2. Se c'è un coordinatore (regola 0 della hub): mandagli una riga (fatto / bloccato su cosa / cosa servirebbe dopo,
    più il percorso della nota), così aggiorna il registro delle sessioni.
 3. **Controllo finale**: rileggi la lista dei messaggi dell'utente del giro di raccolta e spunta che ognuno sia coperto.

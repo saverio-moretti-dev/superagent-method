@@ -320,6 +320,28 @@ def antenati():
     return pids
 
 
+def e_riavvio(cmd):
+    """Vero solo se il processo È riavvia.py/riavvia.sh (interprete + script, o lo script stesso), non una shell
+    genitrice che lo nomina nella riga di comando (zsh -c «… riavvia.py … ttys001»: bloccò 6 min il SUP il 13/11 19:40)."""
+    p = cmd.split()
+    if not p:
+        return False
+    if p[0].endswith(("riavvia.py", "riavvia.sh")):
+        return True
+    base = os.path.basename(p[0]).lower()
+    if not (base.startswith("python") or base in ("bash", "sh")):
+        return False
+    script = next((x for x in p[1:] if not x.startswith("-")), "")
+    return script.endswith(("riavvia.py", "riavvia.sh"))
+
+
+assert e_riavvio("/opt/homebrew/bin/python3 /x/tools/riavvia.py --sup --attendi 3 /dev/ttys001")
+assert e_riavvio("/Library/Frameworks/Python.framework/Versions/3.15/Resources/Python.app/Contents/MacOS/Python -u /x/riavvia.py ttys001")
+assert e_riavvio("/bin/bash /tmp/riavvia.sh ttys001")
+assert not e_riavvio("/bin/zsh -c source /x/snap.sh && python3 /x/riavvia.py --sup ttys001")
+assert not e_riavvio("grep riavvia.py ttys001")
+
+
 def g_altri(tty):
     try:
         ps = subprocess.run(["ps", "-A", "-ww", "-o", "pid=,command="], capture_output=True, text=True, timeout=5).stdout
@@ -330,7 +352,7 @@ def g_altri(tty):
         pid, _, cmd = riga.strip().partition(" ")
         if not pid.isdigit() or int(pid) in miei:
             continue
-        if ("riavvia.py" in cmd or "riavvia.sh" in cmd) and (f"/dev/{t}" in cmd or f" {t}" in cmd):
+        if e_riavvio(cmd) and (f"/dev/{t}" in cmd or f" {t}" in cmd):
             return f"altro riavvio in attesa per {t}: pid {pid}"
     return None
 
