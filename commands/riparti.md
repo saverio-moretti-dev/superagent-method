@@ -14,6 +14,9 @@ Indicazioni aggiuntive dell'utente: $ARGUMENTS
    - Se la nota non c'è: dillo in una riga e segui la normale sequenza d'avvio (nota di repo, `CLAUDE.md`, stato git).
    Se è più vecchia di 48 ore, avvisa: può essere superata.
 1-ter. **Solo per il coordinatore**: appena ripartito, rilascia i messaggi trattenuti durante la pausa (se il progetto li trattiene) e avvisa che sei pronto **solo gli agenti al lavoro o con un ordine aperto verso di te**, non tutti: chi è fermo e non ti deve niente non va disturbato.
+   Se il progetto ha una procedura d'emergenza che ti ha aperto come **seconda copia del coordinatore** (un file di passaggio con la scheda della copia
+   vecchia), chiudi la copia vecchia solo dopo aver verificato che su quella scheda c'è ancora lei, con lo strumento del progetto per chiudere le schede;
+   se non si chiude, chiudi la sola scheda (mai il terminale intero) e segnalalo. Mai uccidere processi.
 1-bis. **Agenda**: se la sessione ha un nome e c'è `agende/<NOME>.md` nella hub, leggila (§ 1-9) prima della nota: decisioni e permessi vincono sulla nota; la discordanza va in cronologia dell'agenda.
 2. **Contesto globale**: leggi solo i file della sezione «Contesto globale», nell'ordine e nelle sezioni indicate.
    Il `CLAUDE.md` della repo vale comunque e vince sulla nota.
