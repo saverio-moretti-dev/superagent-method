@@ -9,7 +9,7 @@ cron che sveglia a metà attesa · messaggio Regia in arrivo · quiete < 20 s ·
 durante l'attesa · nota già .letta (SUPERATO) · doppia attesa sulla stessa scheda · blocco 5 min · sequenza completa
 --sup · log ATTESA senza doppioni · integrazione sulle trascrizioni vere (se presenti sul Mac).
 """
-import glob, importlib.util, json, os, shutil, sys, tempfile, time, types, unittest
+import glob, importlib.util, json, os, shutil, subprocess, sys, tempfile, time, types, unittest
 from unittest import mock
 
 QUI = os.path.dirname(os.path.abspath(__file__))
@@ -77,6 +77,7 @@ class Base(unittest.TestCase):
         self.r.sessione = lambda nome: [{"name": nome, "pid": 4242, "status": self.stato, "sessionId": self.sid}]
         self.r.tty_di = lambda pid: "ttys002"
         self.r.g_altri = lambda tty: None
+        self.scrivi_vero = self.r.scrivi  # per Muto: osascript finto che non risponde
 
         def scrivi(tty, testo, prova, svuota=0):  # sessione finta: /clear e /riparti partono davvero
             self.inviati.append((self.r.tty_corto(tty), testo, self.ora.t))
@@ -538,6 +539,71 @@ class Agente(Base):
         self.r.pulisci = lambda tty, prova: False
         self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 2)
         self.assertEqual(self.inviati, [])
+
+
+
+class Muto(Base):
+    """Blocco del 13/11 20:07: osascript appeso 15 s → riavvia.py moriva senza togliere il blocco del tty."""
+
+    def setUp(self):
+        super().setUp()
+        self.stato = "idle"
+        self.nota(fa_s=60)
+        self.trascrivi(FINE, fa_s=60)
+        self.r.scrivi = self.scrivi_vero
+        self.chiamate = []
+        self.rispondi = []  # per ogni chiamata osascript: "ok" oppure None (= timeout)
+
+    def run_finto(self, cmd, **kw):
+        self.chiamate.append(cmd)
+        esito = self.rispondi.pop(0) if self.rispondi else None
+        if esito is None:
+            raise subprocess.TimeoutExpired(cmd, kw.get("timeout"))
+        return types.SimpleNamespace(stdout=esito + "\n", stderr="", returncode=0)
+
+    def blocco(self):
+        return os.path.exists(os.path.join(self.r.BLOCCHI, "ttys002.json"))
+
+    def lancia_muto(self, *argv):
+        with mock.patch.object(self.r.subprocess, "run", self.run_finto):
+            return self.lancia(*argv)
+
+    def test_40_timeout_al_primo_invio_blocco_tolto(self):
+        self.assertEqual(self.lancia_muto("SUPERAGENTE", TTY, "--sup"), 7)
+        self.assertFalse(self.blocco())
+        self.assertIn("Terminal non risponde da 15 s", self.log())
+        self.assertIn("FALLITO SUPERAGENTE ttys002", self.log())
+        self.assertIn("SBLOCCATO ttys002", self.log())
+        self.assertIsNone(self.r.g_blocco(TTY))  # un nuovo riavvio può partire subito
+
+    def test_41_timeout_dopo_un_invio_blocco_resta(self):
+        self.rispondi = ["ok"]  # /clear arriva, poi Terminal non risponde più
+        self.r.attendi_clear = lambda *a: (None, "finto")
+        self.r.attendi_ferma = lambda *a: None
+        self.assertEqual(self.lancia_muto("SUPERAGENTE", TTY, "--sup"), 7)
+        self.assertTrue(self.blocco())
+        self.assertNotIn("SBLOCCATO", self.log())
+
+    def test_42_agente_timeout_su_exit(self):
+        self.r.g_sottofondo = lambda *a: None
+        self.nota(fa_s=60, nome="PROVA-X")
+        self.assertEqual(self.lancia_muto("PROVA-X", TTY, self.home), 7)
+        self.assertFalse(self.blocco())
+
+    def test_43_leggi_schermo_timeout_lista_vuota_e_log(self):
+        with mock.patch.object(self.r.subprocess, "run", self.run_finto):
+            self.assertEqual(self.r.leggi_schermo(TTY), [])
+        self.assertIn("lettura dello schermo", self.log())
+
+    def test_44_altra_eccezione_senza_invii_blocco_tolto(self):
+        self.r.comando = mock.Mock(side_effect=RuntimeError("guasto"))
+        with self.assertRaises(RuntimeError), mock.patch("sys.stdout"), mock.patch("sys.stderr"):
+            self.r.main(["SUPERAGENTE", TTY, "--sup"])
+        self.assertFalse(self.blocco())
+
+    def test_45_prova_niente_blocco_niente_osascript(self):
+        self.assertEqual(self.lancia_muto("SUPERAGENTE", TTY, "--sup", "--prova"), 0)
+        self.assertEqual(self.chiamate, [])
 
 
 if __name__ == "__main__":

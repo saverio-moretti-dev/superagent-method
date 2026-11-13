@@ -43,6 +43,11 @@ Casella d'ingresso e verifica (fallimento dell'11/11 19:40, causa dimostrata su 
      niente /riparti (MAI /riparti sul contesto vecchio). /riparti non arrivato: un nuovo tentativo, poi uscita 5.
   Il log scrive l'esito misurato (CLEAR OK sid vecchio → nuovo, RIPARTI OK, oppure FALLITO e perché).
 
+Terminal che non risponde (blocco del 13/11 20:07: osascript appeso 15 s, eccezione non gestita, script morto e blocco
+del tty rimasto → chi rilanciava aspettava 300 s): ogni osascript ha 15 s; se scade si scrive «Terminal non risponde da
+15 s» nel log e si esce con 7. Il blocco del tty si toglie SEMPRE (anche su eccezione o uscita) se nessun `do script`
+è arrivato alla scheda: niente è stato scritto, quindi un nuovo riavvio non fa danni.
+
 Variabili d'ambiente (solo per le prove; senza, valori normali):
   RIAVVIA_BLOCCO_S=N      blocco per scheda in secondi (normale 300) — 10 riavvii di fila nelle prove
   RIAVVIA_NOTA_MAX_S=N    età massima della nota in secondi (normale 600)
@@ -52,6 +57,12 @@ Variabili d'ambiente (solo per le prove; senza, valori normali):
 import glob, json, os, subprocess, sys, time
 
 CASA = os.path.expanduser("~")
+SCRITTO = False   # True appena un `do script` è arrivato alla scheda: da lì il blocco del tty resta
+
+
+class TerminalMuto(Exception):
+    """osascript non ha risposto entro il timeout (Terminal appeso o lentissimo)."""
+
 PASSAGGI = os.path.join(CASA, ".claude", "passaggi")
 BLOCCHI = os.path.join(CASA, ".claude", "consumo", "riavvii")
 LOG = os.path.join(CASA, ".claude", "consumo", "riavvii.log")
@@ -309,6 +320,14 @@ def blocca(tty, nome):
         json.dump({"t": time.time(), "ora": ora(), "nome": nome}, f)
 
 
+def sblocca(tty, perche):
+    try:
+        os.remove(os.path.join(BLOCCHI, tty_corto(tty) + ".json"))
+        registra(f"SBLOCCATO {tty_corto(tty)}: {perche}")
+    except OSError:
+        pass
+
+
 def antenati():
     pids, p = set(), os.getpid()
     while p > 1 and p not in pids:
@@ -391,9 +410,15 @@ def scrivi(tty, testo, prova, svuota=0):
     if prova:
         print(f"  (prova) scriverei in {tty_corto(tty)}: {testo}")
         return True
-    r = subprocess.run(["osascript", *[x for riga in APPLESCRIPT for x in ("-e", riga)], "/dev/" + tty_corto(tty),
-                        SVUOTA * svuota + testo], capture_output=True, text=True, timeout=15)
+    global SCRITTO
+    try:
+        r = subprocess.run(["osascript", *[x for riga in APPLESCRIPT for x in ("-e", riga)], "/dev/" + tty_corto(tty),
+                            SVUOTA * svuota + testo], capture_output=True, text=True, timeout=15)
+    except subprocess.TimeoutExpired:
+        registra(f"{tty_corto(tty)}: Terminal non risponde da 15 s (do script {testo[-40:]!r} senza risposta)")
+        raise TerminalMuto(f"Terminal non risponde da 15 s su {tty_corto(tty)}")
     ok = r.stdout.strip() == "ok"
+    SCRITTO = SCRITTO or ok
     registra(f"{tty_corto(tty)} ← {testo!r}: {r.stdout.strip() or r.stderr.strip()}")
     return ok
 
@@ -420,6 +445,9 @@ def leggi_schermo(tty):
     try:
         r = subprocess.run(["osascript", *[x for riga in LEGGI_SCHEDA for x in ("-e", riga)], "/dev/" + tty_corto(tty)],
                            capture_output=True, text=True, timeout=15)
+    except subprocess.TimeoutExpired:
+        registra(f"{tty_corto(tty)}: Terminal non risponde da 15 s (lettura dello schermo)")
+        return []
     except subprocess.SubprocessError:
         return []
     return r.stdout.splitlines()
@@ -630,6 +658,17 @@ def main(a):
 
     if not prova:
         blocca(tty, nome)
+    try:
+        esegui(nome, tty, cartella, sup, prova)
+    except TerminalMuto as e:
+        registra(f"FALLITO {nome} {tty_corto(tty)}: {e}")
+        esci(f"RIAVVIO NON FATTO di {nome}: {e}. Riprova più tardi (blocco tolto se niente era stato scritto)", 7)
+    finally:
+        if not prova and not SCRITTO:
+            sblocca(tty, f"riavvio di {nome} finito senza aver scritto niente nella scheda")
+
+
+def esegui(nome, tty, cartella, sup, prova):
     if sup:
         riparti = f"/riparti {nome.lower()}"
         if prova:
