@@ -204,6 +204,9 @@ def campagna(o):
         if rc == 3 or ultimo or not fa:
             if not fa and rc != 3:
                 C["motivi"].append(f"tester turno {n}: nessun COSA FACCIO")
+            if not fa and not dec and rc == 3:
+                C["valida"] = False  # fermato dal tetto prima di scrivere: il turno non ha dati
+                C["motivi"].append(f"tester turno {n}: interrotto dal tetto di chiamate prima di rispondere (alzare --chiamate)")
             break
         msg, note, tent = master(f"Turno {n} del tester. Il tester fa:\n\n{fa}\n\nRispondi come l'autore o il mondo, "
                                  "formato MESSAGGIO AL TESTER / NOTE PRIVATE.", n)
