@@ -1,4 +1,9 @@
-# Come il master scrive la storia di un tester (livelli 2-3)
+# La storia di partenza del protagonista (livelli 2-3)
+
+La storia viene dalla **scheda del protagonista approvata prima della sessione** (`schede.md`): Prima (era X) e Adesso
+(è Y), poi la situazione dalla scheda della scena. Il master la mette in forma di messaggio e mette in scena l'arrivo
+della consegna; **non cambia i fatti della scheda** e copia parola per parola le frasi che la scena indica.
+Le regole qui sotto valgono per chi scrive la scheda e per il master che la trasforma in messaggio.
 
 La storia è il **solo contesto** del tester. Riguarda **esclusivamente lui**: chi è, la sua vita e la sua attività,
 cosa gli serve, come gli arriva la proposta. Dell'autore dice solo ciò che il tester saprebbe davvero in quel momento.

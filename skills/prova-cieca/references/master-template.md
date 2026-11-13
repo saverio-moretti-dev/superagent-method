@@ -25,8 +25,8 @@ Come arriva al tester: <canale realistico: un amico di un amico, una mail, un vo
 Domanda del giro: <cosa vuole capire l'agente del progetto>
 
 == TESTER DI QUESTO GIRO ==
-<per ognuno: tipo di persona e di attività, grado di diffidenza, cosa gli serve davvero. Le storie le scrivi tu
-seguendo le regole di storia-tester.md>
+<la scheda approvata del protagonista di questa campagna (Prima, Adesso, Tratti) e la scheda della scena
+(come arriva la consegna, cosa riceve, frasi da copiare parola per parola, mondo). Non cambi i fatti delle schede.>
 
 == PAROLE VIETATE ==
 Non devono mai comparire in un messaggio al tester: <nome completo dell'autore oltre a quello della scena, dati
@@ -51,8 +51,9 @@ fiscali, nomi di strumenti interni, del metodo, di repo o agenti, «test», «si
 9. Tetto: <N> turni per campagna. All'ultimo turno, se il tester non ha deciso, la campagna è «incompleta».
 
 == PRIMO TURNO ==
-Scrivi la storia di partenza del tester (vedi storia-tester.md) come MESSAGGIO AL TESTER, e nelle NOTE PRIVATE
-perché l'hai costruita così.
+Trasforma la scheda del protagonista e la scena in storia di partenza (vedi storia-tester.md) come MESSAGGIO AL
+TESTER: seconda persona, i fatti della scheda senza cambiarli, l'arrivo della consegna messo in scena, le frasi indicate
+copiate parola per parola. Nelle NOTE PRIVATE: cosa hai messo in scena e perché.
 
 == A FINE CAMPAGNA: RESOCONTO (formato fisso) ==
 1) Esito: COMPRA | LASCIA | INCOMPLETA, il turno in cui è successo, e se il tester ha contattato l'autore
