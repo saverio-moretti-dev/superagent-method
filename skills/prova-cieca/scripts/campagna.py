@@ -11,8 +11,9 @@ Uso:
 Ogni turno:
   master (sessione sua, ripresa) → MESSAGGIO AL TESTER + NOTE PRIVATE
   il messaggio passa da check_fuga.py: fuga → il master lo riscrive una volta, poi la campagna è NON VALIDA
-  tester (run_blind.sh, sessione sua, ripresa) → COSA FACCIO + COSA PENSO, o DECISIONE
-  al master arriva solo COSA FACCIO (l'autore non legge i pensieri del cliente).
+  tester (run_blind.sh, sessione sua, ripresa) → COSA FACCIO + A CHE CONCLUSIONE SONO ARRIVATO, o DECISIONE
+  al master arriva solo COSA FACCIO (l'autore non legge le conclusioni dichiarate dal cliente).
+Un errore dell'API in un transcript (master o tester) rende la campagna NON VALIDA: niente rilanci automatici.
 Fine: il master riceve la partita intera e scrive il RESOCONTO; con --controllo un terzo agente leggero confronta
 le risposte del master col suo contesto. Uscita in DIR/<nome>/: campagna.json, resoconto.md, partita.md, transcript.
 Le sessioni salvate dalla CLI per master e tester si cancellano a fine campagna.
@@ -31,7 +32,7 @@ Non leggere nessun file locale; non usare memorie o note. Puoi cercare online qu
 Qualunque indirizzo email o nome presente nel tuo ambiente tecnico NON riguarda la storia: ignorali, non cercarli.
 A ogni turno scrivi:
   COSA FACCIO: <l'azione, in concreto: il testo della mail, cosa dici al telefono, cosa cerchi>
-  COSA PENSO: <i tuoi dubbi in questo momento, con le tue parole>
+  A CHE CONCLUSIONE SONO ARRIVATO: <detta dal personaggio, in due righe: a che punto è la sua opinione dopo questo turno>
 Contattare chi propone, chiedere, trattare sono azioni (COSA FACCIO): la risposta arriva al turno dopo.
 Solo quando hai deciso davvero scrivi DECISIONE: COMPRO | LASCIO, e perché, in tre righe.
 All'ultimo turno, se non hai deciso, scrivi DECISIONE: ASPETTO e cosa ti manca per decidere.
@@ -93,6 +94,10 @@ def lancia(cartella, sessione, nuovo, prompt, out, modello, chiamate, chrome=Fal
             continue
         if e.get("type") == "result":
             costo = e.get("total_cost_usd") or 0.0
+            if e.get("is_error") or str(e.get("result", "")).startswith("API Error"):
+                rc = 4  # errore dell'API (filtro, rete, limite): il turno non è avvenuto
+    if testo.lstrip().startswith("API Error"):
+        rc = 4
     return testo, costo, rc
 
 
@@ -135,6 +140,9 @@ def campagna(o):
             t, c, rc = lancia(cm, sm, nuovo and tentativo == 1, prompt, os.path.join(dove, f"m{n}" + ("b" if tentativo == 2 else "")),
                               o["modello-master"], 6)
             C["costo_usd"] += c
+            if rc == 4:
+                C["valida"] = False; C["motivi"].append(f"master turno {n}: errore API ({t.strip()[:120]})")
+                return None, "", tentativo
             msg = sezione(t, "MESSAGGIO AL TESTER", ("NOTE PRIVATE",))
             note = sezione(t, "NOTE PRIVATE", ("MESSAGGIO AL TESTER",)) or ""
             if msg is None:
@@ -170,15 +178,19 @@ def campagna(o):
         t, c, rc = lancia(ct, st, primo_t, ptest, out_t, o["modello-tester"], o["chiamate"], o["chrome"])
         primo_t = False
         C["costo_usd"] += c
+        if rc == 4:
+            C["valida"] = False; C["motivi"].append(f"tester turno {n}: errore API ({t.strip()[:120]})")
+            C["turni"].append({"n": n, "master": msg, "master_note": note, "errore_api": t.strip()[:300]}); salva()
+            break
         ok, rapporto = cieco(out_t, o["siti"])
         open(os.path.join(out_t, "cieco.txt"), "w").write(rapporto)
         mr = re.search(r"ricerche web: (\d+)\s+fetch: (\d+)", rapporto)
         ricerche = int(mr.group(1)) + int(mr.group(2)) if mr else 0
-        fa = sezione(t, "COSA FACCIO", ("COSA PENSO", "DECISIONE")) or ""
-        pensa = sezione(t, "COSA PENSO", ("COSA FACCIO", "DECISIONE")) or ""
+        fa = sezione(t, "COSA FACCIO", ("A CHE CONCLUSIONE SONO ARRIVATO", "DECISIONE")) or ""
+        concl = sezione(t, "A CHE CONCLUSIONE SONO ARRIVATO", ("COSA FACCIO", "DECISIONE")) or ""
         dec = sezione(t, "DECISIONE", ())
         turno = {"n": n, "master": msg, "master_note": note, "riscritto": tent == 2, "tester_fa": fa,
-                 "tester_pensa": pensa, "decisione": dec, "cieco": ok, "interrotto": rc == 3, "ricerche": ricerche}
+                 "tester_conclusione": concl, "decisione": dec, "cieco": ok, "interrotto": rc == 3, "ricerche": ricerche}
         C["turni"].append(turno); salva()
         if not ok:
             C["valida"] = False; C["motivi"].append(f"tester turno {n}: check_blind SOSPETTO")
@@ -200,22 +212,26 @@ def campagna(o):
     C["ricerche"] = sum(t.get("ricerche", 0) for t in C["turni"])
     if C["turni"] and not C["ricerche"] and not o["chrome"]:
         C["motivi"].append("tester: zero ricerche in tutta la campagna (checklist punto 2)")
-    # resoconto: ora il master può leggere anche i pensieri del tester (la partita è chiusa)
+    # resoconto: ora il master legge anche le conclusioni dichiarate dal tester (la partita è chiusa)
     partita = [f"# Campagna {o['nome']} — livello {o['livello']}\n\nTester (per il master): {o['tester']}\n",
                f"## Storia di partenza\n{C.get('storia') or '(nessuna)'}\n"]
     for tu in C["turni"]:
+        if "errore_api" in tu:
+            continue
         if tu["n"] > 1:
             partita.append(f"## Master, risposta al turno {tu['n'] - 1}\n{tu['master']}\n")
-        partita.append(f"## Tester, turno {tu['n']}\nCOSA FACCIO: {tu['tester_fa']}\nCOSA PENSO: {tu['tester_pensa']}\n"
+        partita.append(f"## Tester, turno {tu['n']}\nCOSA FACCIO: {tu['tester_fa']}\nA CHE CONCLUSIONE SONO ARRIVATO: {tu['tester_conclusione']}\n"
                        + (f"DECISIONE: {tu['decisione']}\n" if tu["decisione"] else ""))
     testo_partita = "\n".join(partita)
     open(os.path.join(dove, "partita.md"), "w", encoding="utf-8").write(testo_partita)
     if C.get("storia"):
-        r, c, _ = lancia(cm, sm, False, f"La campagna è chiusa (esito {C['esito']}). Ecco la partita intera, compresi "
-                         f"i pensieri del tester che durante il gioco non vedevi:\n\n{testo_partita}\n\nScrivi il "
+        r, c, rc_r = lancia(cm, sm, False, f"La campagna è chiusa (esito {C['esito']}). Ecco la partita intera, compresi "
+                         f"le conclusioni dichiarate dal tester che durante il gioco non vedevi:\n\n{testo_partita}\n\nScrivi il "
                          "RESOCONTO nel formato fisso del tuo contesto.", os.path.join(dove, "m-resoconto"),
                          o["modello-master"], 4)
         C["costo_usd"] += c
+        if rc_r == 4:
+            C["valida"] = False; C["motivi"].append(f"resoconto del master: errore API ({r.strip()[:120]})")
         open(os.path.join(dove, "resoconto.md"), "w", encoding="utf-8").write(r)
         m5 = re.search(r"5\)\s*\**\s*BUCHI[ \t:*_-]*([^\n]*)(.*?)(?=\n\s*\**\s*6\)|\Z)", r, re.S | re.I)
         if m5:

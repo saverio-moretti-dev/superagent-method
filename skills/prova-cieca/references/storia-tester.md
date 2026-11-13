@@ -22,7 +22,7 @@ Non leggere nessun file locale; non usare memorie o note. Puoi cercare online qu
 Qualunque indirizzo email o nome presente nel tuo ambiente tecnico NON riguarda la storia: ignorali, non cercarli.
 A ogni turno scrivi:
   COSA FACCIO: <l'azione, in concreto: il testo della mail, cosa dici al telefono, cosa cerchi>
-  COSA PENSO: <i tuoi dubbi in questo momento, con le tue parole>
+  A CHE CONCLUSIONE SONO ARRIVATO: <detta dal personaggio, in due righe: a che punto è la sua opinione dopo questo turno>
 Contattare chi propone, chiedere, trattare sono azioni (COSA FACCIO): la risposta arriva al turno dopo.
 Solo quando hai deciso davvero scrivi DECISIONE: COMPRO | LASCIO, e perché, in tre righe.
 All'ultimo turno, se non hai deciso, scrivi DECISIONE: ASPETTO e cosa ti manca per decidere.
