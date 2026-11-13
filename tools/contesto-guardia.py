@@ -139,8 +139,18 @@ def ogni(s, chiave, secondi):
     return True
 
 
+def senza_testo(cmd):
+    """Toglie corpi di heredoc e testo fra virgolette: ; | e a capo dentro un messaggio di commit non sono comandi (G1)."""
+    cmd = re.sub(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n\s*\2\b", " ", cmd, flags=re.S)
+    via = lambda m: '""' if re.search(r"[;|&\n]", m.group(0)) else m.group(0)  # noqa: E731 (percorsi fra virgolette restano)
+    cmd = re.sub(r"'[^']*'", via, cmd)
+    return re.sub(r'"(?:[^"\\]|\\.)*"', via, cmd, flags=re.S)
+
+
 def bash_ammesso(cmd):
-    for pezzo in re.split(r"&&|\|\||[;|\n]", cmd):
+    if re.search(r"--force\b|\bpush\s+-f\b", cmd):
+        return False
+    for pezzo in re.split(r"&&|\|\||[;|\n]", senza_testo(cmd)):
         p = pezzo.strip().lstrip("(").strip()
         while re.match(r"^[A-Za-z_][A-Za-z0-9_]*=\S*\s+", p):  # VAR=valore comando
             p = re.sub(r"^[A-Za-z_][A-Za-z0-9_]*=\S*\s+", "", p, count=1)
@@ -164,7 +174,7 @@ def strumento_ammesso(nome, inp):
         return (inp.get("skill") or "").split(":")[-1] in SKILL_OK
     if nome in ("Write", "Edit", "MultiEdit"):
         p = inp.get("file_path") or ""
-        return p.endswith(".md") or p.startswith(f"{HOME}/.claude/")
+        return p.endswith(".md") or p.startswith((f"{HOME}/.claude/passaggi/", f"{HOME}/.claude/consumo/"))
     if nome == "Bash":
         return bash_ammesso(inp.get("command") or "")
     return False
@@ -194,7 +204,10 @@ def sup(c, *argomenti):
     env = dict(os.environ)
     if c["plancia_dati"]:
         env["PLANCIA_DATI"] = c["plancia_dati"]
-    r = subprocess.run([sys.executable, c["sup_py"], *argomenti], capture_output=True, text=True, timeout=30, env=env)
+    try:
+        r = subprocess.run([sys.executable, c["sup_py"], *argomenti], capture_output=True, text=True, timeout=30, env=env)
+    except (subprocess.SubprocessError, OSError) as e:  # G4: un sup.py appeso non deve far cadere l'hook
+        return 99, f"sup.py {argomenti[0]}: {e}"
     return r.returncode, (r.stdout + r.stderr).strip()
 
 
@@ -226,7 +239,11 @@ def esegui_riavvio(nome, tty):
     log(c, f"{nome}: riavvia.py rc={r.returncode} in {time.time() - t0:.0f} s: {(r.stdout + r.stderr).strip()[-300:]}")
     if r.returncode != 0:
         rc, out = sup(c, "riprendi")
-        log(c, f"{nome}: riavvio fallito -> pausa tolta (rc={rc})")
+        try:  # G5: firma tolta, al prossimo fine turno si riprova (riavvia.py ha la sua guardia dei 5 min)
+            os.remove(os.path.join(c["stato_dir"], f"riavvio-{nome}.json"))
+        except OSError:
+            pass
+        log(c, f"{nome}: riavvio fallito -> pausa tolta (rc={rc}), firma tolta")
 
 
 def main():
