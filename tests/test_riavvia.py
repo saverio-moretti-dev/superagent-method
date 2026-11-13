@@ -13,7 +13,7 @@ import glob, importlib.util, json, os, shutil, subprocess, sys, tempfile, time, 
 from unittest import mock
 
 QUI = os.path.dirname(os.path.abspath(__file__))
-SCRIPT = os.path.join(QUI, "..", "tools", "riavvia.py")
+SCRIPT = os.environ.get("RIAVVIA_SCRIPT") or os.path.join(QUI, "..", "tools", "riavvia.py")  # RIAVVIA_SCRIPT: prova una copia
 CASA_VERA = os.path.expanduser("~")
 TTY = "/dev/ttys002"
 SID = "11111111-2222-3333-4444-555555555555"
@@ -542,6 +542,41 @@ class Agente(Base):
         self.r.pulisci = lambda tty, prova: False
         self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 2)
         self.assertEqual(self.inviati, [])
+
+    # G1-B5-model (SUP 14/11): rilancio col modello della sessione vecchia, letto dalla trascrizione
+    def cd_inviato(self):
+        return [t for _, t, _ in self.inviati if t.startswith("cd ")][0]
+
+    def test_39a_modello_della_sessione(self):
+        haiku = {"type": "assistant", "message": {"model": "claude-haiku-5-5", "content": [{"type": "text", "text": "x"}]}}
+        sint = {"type": "assistant", "message": {"model": "<synthetic>", "content": [{"type": "text", "text": "y"}]}}
+        self.trascrivi([haiku, sint] + FINE, fa_s=60)
+        self.scrivi_agente(True)
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 0)
+        self.assertIn("--model claude-haiku-5-5 ", self.cd_inviato())
+        self.assertNotIn("MODELLO PROVA-A", self.log())
+
+    def test_39b_modello_non_letto_predefinito_e_log(self):
+        self.scrivi_agente(True)
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 0)
+        self.assertNotIn("--model", self.cd_inviato())
+        self.assertIn("MODELLO PROVA-A ttys002: non letto", self.log())
+
+    def test_39c_extra_con_model_vince(self):
+        haiku = {"type": "assistant", "message": {"model": "claude-haiku-5-5", "content": []}}
+        self.trascrivi([haiku] + FINE, fa_s=60)
+        self.scrivi_agente(True)
+        with mock.patch.dict(os.environ, {"RIAVVIA_EXTRA": "--model sonnet"}):
+            self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 0)
+        self.assertIn("--model sonnet ", self.cd_inviato())
+        self.assertNotIn("haiku", self.cd_inviato())
+
+    def test_39d_modello_strano_rifiutato(self):
+        cattivo = {"type": "assistant", "message": {"model": "claude-x; rm -rf ~", "content": []}}
+        self.trascrivi([cattivo] + FINE, fa_s=60)
+        self.scrivi_agente(True)
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 0)
+        self.assertNotIn("--model", self.cd_inviato())
 
 
 

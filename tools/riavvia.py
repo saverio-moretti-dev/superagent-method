@@ -62,7 +62,8 @@ Variabili d'ambiente (solo per le prove; senza, valori normali):
   RIAVVIA_BLOCCO_S=N      blocco per scheda in secondi (normale 300) — 10 riavvii di fila nelle prove
   RIAVVIA_NOTA_MAX_S=N    età massima della nota in secondi (normale 600)
   RIAVVIA_FERMA_S=N       attesa massima di NOME.pronto in secondi (normale 180)
-  RIAVVIA_EXTRA="…"       argomenti in più per claude al rilancio, solo per sessioni PROVA-… (es. --model haiku)
+  RIAVVIA_EXTRA="…"       argomenti in più per claude al rilancio, solo per sessioni PROVA-… (es. --settings);
+                          senza --model qui, il modello è quello della sessione vecchia (trascrizione), se no il predefinito
   RIAVVIA_PROVA=1         consente --sup su una sessione di prova il cui nome comincia per PROVA-
                           (manda «/riparti <nome in minuscolo>», come «/riparti superagente» per il SUP)
 """
@@ -202,6 +203,30 @@ def stato_voci(voci, dopo_clear=False):
 def trascrizione(sid):
     f = glob.glob(os.path.join(CASA, ".claude", "projects", "*", f"{sid}.jsonl")) if sid else []
     return f[0] if f else None
+
+
+def modello_di(sid):
+    """Ultimo modello vero (message.model) nella trascrizione della sessione; None se non si legge (SUP 14/11:
+    il riavvio deve rilanciare col modello della sessione, non col predefinito: PROVA-B5 haiku → opus)."""
+    f = trascrizione(sid)
+    if not f:
+        return None
+    try:
+        with open(f, "rb") as h:
+            h.seek(max(0, os.path.getsize(f) - 1048576))
+            righe = h.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return None
+    for r in reversed(righe):
+        if '"model"' not in r:
+            continue
+        try:
+            m = (json.loads(r).get("message") or {}).get("model")
+        except (ValueError, AttributeError):
+            continue
+        if isinstance(m, str) and m.startswith("claude-") and all(c.isalnum() or c in "-._" for c in m):
+            return m
+    return None
 
 
 def turno_finito(sid, dopo_clear=False):
@@ -850,6 +875,12 @@ def esegui(nome, tty, cartella, sup, prova, ferma=True):
     q = cartella.replace("'", "'\\''")
     t_invio = time.time()
     extra = os.environ.get("RIAVVIA_EXTRA", "") if nome.startswith("PROVA-") else ""  # prove: --model, --settings
+    if "--model" not in extra:
+        mod = modello_di(sid0)
+        if mod:
+            extra = (extra + " " if extra else "") + f"--model {mod}"
+        else:
+            registra(f"MODELLO {nome} {tty_corto(tty)}: non letto dalla trascrizione ({sid0}): rilancio col predefinito")
     scrivi(tty, f"cd '{q}' && claude -n {nome} --disallowedTools=AskUserQuestion {extra + ' ' if extra else ''}\"/riparti {nome}\"", prova)
     if prova:
         esci(f"{nome} riavviato su {tty_corto(tty)} (prova)", 0)
