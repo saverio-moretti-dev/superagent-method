@@ -128,9 +128,12 @@ class Base(unittest.TestCase):
         except OSError:
             return ""
 
+    con_ferma = False  # i casi fino al 13/11 provano il resto: il passo h (B4) ha la sua classe Ferma
+
     def lancia(self, *argv):
+        argv = list(argv) + ([] if self.con_ferma else ["--senza-ferma"])
         with self.assertRaises(SystemExit) as e, mock.patch("sys.stdout"), mock.patch("sys.stderr"):
-            self.r.main(list(argv))
+            self.r.main(argv)
         return e.exception.code
 
 
@@ -605,6 +608,152 @@ class Muto(Base):
         self.assertEqual(self.lancia_muto("SUPERAGENTE", TTY, "--sup", "--prova"), 0)
         self.assertEqual(self.chiamate, [])
 
+
+
+class Ferma(Base):
+    """G1 B4 (13/11): passo h (TaskStop + CronDelete, NOME.pronto) e passo i (doppioni dopo /riparti)."""
+    con_ferma = True
+
+    def setUp(self):
+        super().setUp()
+        self.stato = "idle"
+        self.vivo = True
+        self.figli = []            # figli in sottofondo che restano dopo FERMA
+        self.risponde = True       # la sessione scrive NOME.pronto
+        self.altre = []            # sessioni con lo stesso nome su altri tty
+        self.r.claude_su = lambda tty: self.vivo
+        self.r.leggi_casella = lambda tty: None
+        self.r.figli_lavoro = lambda pid: self.figli
+        self.r.tty_di = lambda pid: {4242: "ttys002"}.get(pid) or next((a["tty"] for a in self.altre if a["pid"] == pid and a["vivo"]), "")
+        self.r.sessione = lambda nome: ([{"name": nome, "pid": 4242, "status": self.stato, "sessionId": self.sid}] +
+                                        [dict(a, name=a.get("name", nome)) for a in self.altre if a["vivo"]])
+        self.chiusi = []
+        finto = types.ModuleType("doppia")
+
+        def chiudi(tty):
+            self.chiusi.append(tty)
+            for a in self.altre:
+                if a["tty"] == tty and a.get("sola", True):
+                    a["vivo"] = False
+                    return True, "chiusura chiesta"
+            return False, f"{tty} sta in una finestra con altre schede: non chiusa"
+        finto.chiudi = chiudi
+        sys.modules["doppia"] = finto
+        self.addCleanup(sys.modules.pop, "doppia", None)
+
+    def prepara(self, nome):
+        self.nome = nome
+        self.nota(fa_s=60, nome=nome)
+        self.trascrivi(FINE, fa_s=60)
+
+        def scrivi(tty, testo, prova, svuota=0):
+            self.inviati.append((self.r.tty_corto(tty), testo, self.ora.t))
+            if testo == self.r.TESTO_FERMA and self.risponde:
+                with open(os.path.join(self.home, ".claude", "passaggi", f"{nome}.pronto"), "w") as f:
+                    f.write("task b1 coda\ncron c1 giro\nfine\n")
+            elif testo == "/exit":
+                self.vivo = False
+            elif testo.startswith("cd "):
+                self.sid = "bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee"
+                self.trascrivi([], fa_s=0)
+                self.trascrivi_aggiungi([{"type": "user", "message": {"content": "<command-name>/riparti</command-name>"}}])
+            else:
+                self.simula(testo)
+            return True
+        self.r.scrivi = scrivi
+
+    def inviati_testi(self):
+        return [t for _, t, _ in self.inviati]
+
+    def test_50_agente_ferma_poi_exit(self):
+        self.prepara("PROVA-A")
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 0)
+        self.assertEqual(self.inviati_testi()[:2], [self.r.TESTO_FERMA, "/exit"])
+        self.assertIn("FERMA OK PROVA-A ttys002: task b1 coda | cron c1 giro | fine", self.log())
+        with open(self.r.FERMA_MD, encoding="utf-8") as f:
+            self.assertIn("CronDelete", f.read())
+
+    def test_51_niente_pronto_niente_exit(self):
+        self.prepara("PROVA-A")
+        self.risponde = False
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 8)
+        self.assertNotIn("/exit", self.inviati_testi())
+        self.assertIn("nessun PROVA-A.pronto", self.log())
+
+    def test_52_pronto_vecchio_non_vale(self):
+        self.prepara("PROVA-A")
+        self.risponde = False
+        p = os.path.join(self.home, ".claude", "passaggi", "PROVA-A.pronto")
+        with open(p, "w") as f:
+            f.write("fine\n")
+        os.utime(p, (self.ora.t - 600, self.ora.t - 600))
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 8)
+
+    def test_53_agente_figli_rimasti_niente_exit(self):
+        self.prepara("PROVA-A")
+        self.figli = ["zsh 999"]
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 8)
+        self.assertNotIn("/exit", self.inviati_testi())
+
+    def test_54_sup_figli_rimasti_va_avanti(self):
+        self.prepara("SUPERAGENTE")
+        self.figli = ["zsh 999"]
+        self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup"), 0)
+        self.assertEqual(self.inviati_testi()[:2], [self.r.TESTO_FERMA, "/clear"])
+        self.assertIn("VIVI DOPO FERMA SUPERAGENTE", self.log())
+
+    def test_55_figli_prima_non_bloccano_le_guardie(self):
+        self.prepara("PROVA-A")
+        self.assertIsNone(self.r.guardie("PROVA-A", TTY, uscita=False))
+
+    def test_56_doppione_fermo_chiuso(self):
+        self.prepara("PROVA-A")
+        self.altre = [{"pid": 777, "tty": "ttys009", "status": "idle", "vivo": True, "name": "PROVA-A (2)"}]
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 0)
+        self.assertEqual(self.chiusi, ["ttys009"])
+        self.assertIn("DOPPIONE PROVA-A (2) pid 777 su ttys009", self.log())
+
+    def test_57_doppione_occupato_non_chiuso(self):
+        self.prepara("PROVA-A")
+        self.altre = [{"pid": 777, "tty": "ttys009", "status": "busy", "vivo": True}]
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 9)
+        self.assertEqual(self.chiusi, [])
+
+    def test_58_doppione_in_finestra_con_altre_schede(self):
+        self.prepara("PROVA-A")
+        self.altre = [{"pid": 777, "tty": "ttys009", "status": "idle", "vivo": True, "sola": False}]
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 9)
+
+    def test_62_away_summary_dopo_fine_turno(self):  # prova B4 22:38: rifiutata una sessione ferma
+        ok, _ = self.r.stato_voci(FINE + [{"type": "system", "subtype": "away_summary"}])
+        self.assertTrue(ok)
+        ok, _ = self.r.stato_voci([{"type": "user", "message": {"content": "x"}}, {"type": "system", "subtype": "away_summary"}])
+        self.assertFalse(ok)
+
+    def test_63_sup_non_cancella_i_cron(self):
+        self.prepara("SUPERAGENTE")
+        self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup"), 0)
+        with open(self.r.FERMA_MD, encoding="utf-8") as f:
+            t = f.read()
+        self.assertNotIn("CronDelete", t)
+        self.assertIn("I cron NON si toccano", t)
+
+    def test_59_stesso_nome(self):
+        f = self.r.stesso_nome
+        self.assertTrue(f("PROVA-A", "prova-a"))
+        self.assertTrue(f("PROVA-A (2)", "PROVA-A"))
+        self.assertFalse(f("PROVA-A-2", "PROVA-A"))
+        self.assertFalse(f("PROVA-A (x)", "PROVA-A"))
+        self.assertFalse(f("PROVA-AB", "PROVA-A"))
+
+    def test_60_senza_ferma(self):
+        self.prepara("PROVA-A")
+        self.con_ferma = False
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 0)
+        self.assertNotIn(self.r.TESTO_FERMA, self.inviati_testi())
+
+    def test_61_testo_ferma_corto(self):
+        self.assertLessEqual(len(self.r.TESTO_FERMA), 44)
 
 if __name__ == "__main__":
     unittest.main()

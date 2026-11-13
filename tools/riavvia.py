@@ -10,6 +10,7 @@ Uso:
   riavvia.py SUPERAGENTE TTY --sup             SUP: /clear, poi "/riparti superagente" (stessa sessione)
   opzioni:  --attendi MIN   aspetta fino a MIN minuti che le guardie siano verdi (al posto dei vecchi «until … sleep»)
             --prova         controlla e dice cosa farebbe, senza scrivere niente nella scheda
+            --senza-ferma   niente passo h (TaskStop/CronDelete prima del riavvio)
 
 Guardie (tutte, ricontrollate subito prima di ogni invio):
   a. la nota ~/.claude/passaggi/NOME.md esiste ed è stata scritta al più 10 minuti prima del LANCIO dello script
@@ -48,9 +49,20 @@ del tty rimasto → chi rilanciava aspettava 300 s): ogni osascript ha 15 s; se 
 15 s» nel log e si esce con 7. Il blocco del tty si toglie SEMPRE (anche su eccezione o uscita) se nessun `do script`
 è arrivato alla scheda: niente è stato scritto, quindi un nuovo riavvio non fa danni.
 
+Riavvio pulito (G1 B4, 13/11; R40, R78, 12/11 01:06: Monitor doppio e doppioni dopo il riavvio):
+  h. prima di /exit o /clear la sessione riceve «Riavvio: esegui ~/.claude/passaggi/FERMA.md» (file scritto qui):
+     TaskStop di ogni Monitor/comando in sottofondo, CronDelete di ogni cron (non con --sup), poi l'elenco in
+     ~/.claude/passaggi/NOME.pronto. Si aspetta quel file (FERMA_S) e la sessione ferma. Agente: se dopo restano figli
+     in sottofondo, niente /exit (uscita 8). SUP (/clear): si va avanti e il log lo dice; i rimasti li segnala
+     l'hook vivi.py --hook (SessionStart clear) e avvio-sup li riconosce. --senza-ferma salta questo passo;
+  i. dopo /riparti di un agente: altre sessioni con lo stesso nome (o «NOME (2)») su un altro tty = doppioni. Ferma
+     (idle) e sola nella finestra → doppia.chiudi; altrimenti uscita 9 con il motivo (il riavvio è comunque fatto).
+
 Variabili d'ambiente (solo per le prove; senza, valori normali):
   RIAVVIA_BLOCCO_S=N      blocco per scheda in secondi (normale 300) — 10 riavvii di fila nelle prove
   RIAVVIA_NOTA_MAX_S=N    età massima della nota in secondi (normale 600)
+  RIAVVIA_FERMA_S=N       attesa massima di NOME.pronto in secondi (normale 180)
+  RIAVVIA_EXTRA="…"       argomenti in più per claude al rilancio, solo per sessioni PROVA-… (es. --model haiku)
   RIAVVIA_PROVA=1         consente --sup su una sessione di prova il cui nome comincia per PROVA-
                           (manda «/riparti <nome in minuscolo>», come «/riparti superagente» per il SUP)
 """
@@ -66,6 +78,21 @@ class TerminalMuto(Exception):
 PASSAGGI = os.path.join(CASA, ".claude", "passaggi")
 BLOCCHI = os.path.join(CASA, ".claude", "consumo", "riavvii")
 LOG = os.path.join(CASA, ".claude", "consumo", "riavvii.log")
+FERMA_S = int(os.environ.get("RIAVVIA_FERMA_S") or 180)
+FERMA_MD = os.path.join(PASSAGGI, "FERMA.md")
+TESTO_FERMA = "Riavvio: esegui ~/.claude/passaggi/FERMA.md"   # corto: oltre ~60 caratteri diventa un incolla
+ISTRUZIONI_FERMA = """# Riavvio in arrivo (riavvia.py, passo h)
+
+Tra poco questa sessione viene riavviata. Prima, senza domande e senza messaggi a nessuno:
+
+1. CronList, poi CronDelete di ogni cron.
+2. TaskStop di ogni Monitor e di ogni comando in sottofondo che hai lanciato (gli id sono nei risultati di Monitor e
+   di Bash in sottofondo, e nelle loro notifiche). Solo i tuoi.
+3. Scrivi ~/.claude/passaggi/NOME.pronto, dove NOME è il nome della tua sessione (riga `nome:` della tua nota di
+   passaggio): una riga per cosa fermata (`cron <id> <descrizione>` / `task <id> <descrizione>`), poi `fine`.
+   Se non c'era niente: solo `fine`.
+4. Fine del turno: non fare altro (il riavvio lo fa lo script).
+"""
 NOTA_MAX_S = int(os.environ.get("RIAVVIA_NOTA_MAX_S") or 10 * 60)
 BLOCCO_S = int(os.environ.get("RIAVVIA_BLOCCO_S") or 5 * 60)
 SVUOTA = "\x0b\x15"          # Ctrl-K + Ctrl-U: cancella a destra e a sinistra del cursore (a inizio/fine riga unisce)
@@ -80,7 +107,7 @@ SOTTOAGENTE_DUBBIO_S = 1800 # non conclusa e scritta da meno di 30 min = dubbio 
 PROCESSI_NORMALI = ("caffeinate", "node", "clangd", "npm", "npx", "uv", "uvx", "python", "python3")  # figli fissi (MCP, LSP)
 FINE_TURNO = ("turn_duration", "stop_hook_summary")
 SOLO_DATI = {"last-prompt", "tools-used", "bridge-session", "file-history-snapshot", "summary", "custom-title",
-             "ai-title", "agent-name", "mode", "session-owner", "cost-state", "atis-latch"}  # voci che non sono lavoro; ogni altro tipo (anche sconosciuto) conta come lavoro
+             "ai-title", "agent-name", "mode", "session-owner", "cost-state", "atis-latch", "permission-mode"}  # voci che non sono lavoro; ogni altro tipo (anche sconosciuto) conta come lavoro
 
 APPLESCRIPT = [  # testo e tty passati come argomenti: niente testo dentro il codice AppleScript
     "on run argv",
@@ -124,9 +151,15 @@ def g_nota(nome, t0=None):
 def sessione(nome):
     try:
         out = subprocess.run(["claude", "agents", "--json"], capture_output=True, text=True, timeout=30).stdout
-        return [x for x in json.loads(out or "[]") if (x.get("name") or "").upper() == nome.upper() and x.get("pid")]
+        return [x for x in json.loads(out or "[]") if stesso_nome(x.get("name"), nome) and x.get("pid")]
     except Exception as e:  # noqa: BLE001
         return e
+
+
+def stesso_nome(n, nome):
+    """NOME o «NOME (2)» (il nome che Claude Code dà a una seconda sessione con lo stesso -n)."""
+    n = (n or "").upper().strip()
+    return n == nome.upper() or (n.startswith(nome.upper() + " (") and n.endswith(")") and n[len(nome) + 2:-1].isdigit())
 
 
 def tty_di(pid):
@@ -153,6 +186,8 @@ def stato_voci(voci, dopo_clear=False):
     for d in reversed(voci):
         t = d.get("type")
         if t in SOLO_DATI:
+            continue
+        if t == "system" and d.get("subtype") == "away_summary":  # riassunto «mentre eri via»: scritto a sessione ferma
             continue
         if t == "system" and d.get("subtype") in FINE_TURNO:
             return True, "turno finito"
@@ -621,13 +656,13 @@ def esci(msg, codice):
 def main(a):
     if len(a) < 2 or a[0] in ("-h", "--help"):
         esci(__doc__, 0 if a else 1)
-    prova, sup = "--prova" in a, "--sup" in a
+    prova, sup, ferma = "--prova" in a, "--sup" in a, "--senza-ferma" not in a
     attendi = 0
     if "--attendi" in a:
         i = a.index("--attendi")
         attendi = float(a[i + 1])
         del a[i:i + 2]
-    a = [x for x in a if x not in ("--prova", "--sup")]
+    a = [x for x in a if x not in ("--prova", "--sup", "--senza-ferma")]
     nome, tty = a[0].upper(), a[1]
     cartella = a[2] if len(a) > 2 else None
     if not sup and not cartella:
@@ -640,7 +675,7 @@ def main(a):
     sid0 = sid_su(nome, tty) if attendi else None
     prima = None
     while True:
-        motivo = guardie(nome, tty, t0=t0, uscita=not sup)
+        motivo = guardie(nome, tty, t0=t0, uscita=not sup and not ferma)  # con il passo h i figli li ferma la sessione
         tipo = "".join(c for c in (motivo or "") if not c.isdigit())  # «scritta 8 s fa» e «19 s fa» = stessa guardia
         if attendi and tipo != prima:  # ogni cambio di guardia nel log, con l'ora
             registra(f"ATTESA {nome} {tty_corto(tty)}: {motivo or 'guardie verdi'}")
@@ -659,7 +694,7 @@ def main(a):
     if not prova:
         blocca(tty, nome)
     try:
-        esegui(nome, tty, cartella, sup, prova)
+        esegui(nome, tty, cartella, sup, prova, ferma)
     except TerminalMuto as e:
         registra(f"FALLITO {nome} {tty_corto(tty)}: {e}")
         esci(f"RIAVVIO NON FATTO di {nome}: {e}. Riprova più tardi (blocco tolto se niente era stato scritto)", 7)
@@ -668,7 +703,88 @@ def main(a):
             sblocca(tty, f"riavvio di {nome} finito senza aver scritto niente nella scheda")
 
 
-def esegui(nome, tty, cartella, sup, prova):
+def istruzioni_ferma(sup):
+    """Con --sup (/clear, stesso processo) i cron NON si cancellano: sopravvivono al /clear e la sessione nuova li
+    ritrova con CronList (13/11 22:37: FERMA aveva cancellato i 3 cron del SUP, ricreati a mano)."""
+    if not sup:
+        return ISTRUZIONI_FERMA
+    return (ISTRUZIONI_FERMA.replace("1. CronList, poi CronDelete di ogni cron.", "1. I cron NON si toccano (sopravvivono al /clear).")
+            .replace("(`cron <id> <descrizione>` / `task <id> <descrizione>`)", "(`task <id> <descrizione>`)"))
+
+
+def ferma_tutto(nome, tty, prova, sup=False):
+    """Passo h: la sessione ferma i suoi task e cron e lo scrive in NOME.pronto. → None se fatto, altrimenti il motivo."""
+    pronto = os.path.join(PASSAGGI, f"{nome}.pronto")
+    if prova:
+        print(f"  (prova) scriverei {TESTO_FERMA!r} e aspetterei {pronto}")
+        return None
+    with open(FERMA_MD, "w", encoding="utf-8") as f:
+        f.write(istruzioni_ferma(sup))
+    t_invio = time.time()
+    if not comando(tty, TESTO_FERMA, prova):
+        return "casella non svuotata: FERMA non mandato"
+    time.sleep(1.5)
+    casella = leggi_casella(tty)
+    if casella and any(l.strip() for l in casella):  # preso come incolla: l'invio non è partito
+        registra(f"{tty_corto(tty)}: FERMA ancora nella casella, mando l'invio")
+        scrivi(tty, "", prova)
+    fine = t_invio + FERMA_S
+    while time.time() < fine:
+        time.sleep(2)
+        if os.path.exists(pronto) and os.path.getmtime(pronto) >= t_invio - 1:
+            with open(pronto, encoding="utf-8", errors="replace") as f:
+                elenco = " | ".join(l.strip() for l in f if l.strip())
+            registra(f"FERMA OK {nome} {tty_corto(tty)}: {elenco[:300]}")
+            m = attendi_ferma(nome, tty, False, 120)
+            return f"{nome}.pronto scritto ma la sessione non si ferma: {m}" if m else None
+    return f"dopo {FERMA_S} s nessun {nome}.pronto"
+
+
+def chiudi_doppioni(nome, tty):
+    """Passo i. → None se nessun doppione resta, altrimenti il motivo."""
+    s = sessione(nome)
+    if isinstance(s, Exception):
+        return f"claude agents non risponde ({s}): doppioni non controllati"
+    altri = [x for x in s if tty_di(x["pid"]) != tty_corto(tty)]
+    if not altri:
+        return None
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import doppia  # noqa: E402
+    restano = []
+    for x in altri:
+        t = tty_di(x["pid"]) or "?"
+        if x.get("status") != "idle":
+            restano.append(f"{x.get('name')} pid {x['pid']} su {t} occupata: non chiusa")
+            continue
+        ok, msg = doppia.chiudi(t)
+        registra(f"DOPPIONE {x.get('name')} pid {x['pid']} su {t}: {msg}")
+        if not ok:
+            restano.append(f"{x.get('name')} su {t}: {msg}")
+    if restano:
+        return "; ".join(restano)
+    time.sleep(20)
+    vivi = [x for x in altri if tty_di(x["pid"])]
+    return ("doppioni ancora vivi dopo la chiusura: " + ", ".join(str(x["pid"]) for x in vivi)) if vivi else None
+
+
+def esegui(nome, tty, cartella, sup, prova, ferma=True):
+    if ferma:
+        m = ferma_tutto(nome, tty, prova, sup)
+        if m:
+            registra(f"FALLITO {nome} {tty_corto(tty)}: passo h — {m}")
+            esci(f"NIENTE RIAVVIO di {nome}: {m}", 8)
+        if not prova:
+            s = sessione(nome)
+            pid = next((x["pid"] for x in s if tty_di(x["pid"]) == tty_corto(tty)), None) if isinstance(s, list) else None
+            rimasti = figli_lavoro(pid) if pid else []
+            if rimasti and not sup:
+                registra(f"FALLITO {nome} {tty_corto(tty)}: dopo FERMA restano in sottofondo {', '.join(rimasti)}")
+                esci(f"NIENTE RIAVVIO di {nome}: dopo FERMA restano in sottofondo {', '.join(rimasti)}", 8)
+            if rimasti:
+                registra(f"VIVI DOPO FERMA {nome} {tty_corto(tty)}: {', '.join(rimasti)} (il /clear li lascia: li segnala vivi.py --hook)")
+            m = g_sottofondo(nome, tty, False)
+            if m:
+                esci(f"NIENTE RIAVVIO di {nome}: {m}", 2)
     if sup:
         riparti = f"/riparti {nome.lower()}"
         if prova:
@@ -733,7 +849,8 @@ def esegui(nome, tty, cartella, sup, prova):
         esci(f"{nome} ancora viva dopo /exit: guarda la scheda {tty_corto(tty)}", 2)
     q = cartella.replace("'", "'\\''")
     t_invio = time.time()
-    scrivi(tty, f"cd '{q}' && claude -n {nome} --disallowedTools=AskUserQuestion \"/riparti {nome}\"", prova)
+    extra = os.environ.get("RIAVVIA_EXTRA", "") if nome.startswith("PROVA-") else ""  # prove: --model, --settings
+    scrivi(tty, f"cd '{q}' && claude -n {nome} --disallowedTools=AskUserQuestion {extra + ' ' if extra else ''}\"/riparti {nome}\"", prova)
     if prova:
         esci(f"{nome} riavviato su {tty_corto(tty)} (prova)", 0)
     sid1 = None
@@ -742,6 +859,10 @@ def esegui(nome, tty, cartella, sup, prova):
         sid1 = sid_su(nome, tty)
         if sid1 and sid1 != sid0 and esito_comando(sid1, "riparti", t_invio) == "ok":
             registra(f"RIAVVIATO {nome} {tty_corto(tty)}: verificato (sessione {(sid0 or '?')[:8]} → {sid1[:8]}, /riparti partito)")
+            d = chiudi_doppioni(nome, tty)
+            if d:
+                registra(f"DOPPIONI {nome}: {d}")
+                esci(f"{nome} riavviato su {tty_corto(tty)} (verificato), ma: {d}", 9)
             esci(f"{nome} riavviato su {tty_corto(tty)} (verificato)", 0)
     registra(f"FALLITO {nome} {tty_corto(tty)}: dopo 60 s nessuna sessione nuova con /riparti (sid {(sid1 or '?')[:8]})")
     esci(f"RIAVVIO NON VERIFICATO di {nome}: guarda la scheda {tty_corto(tty)}", 5)
