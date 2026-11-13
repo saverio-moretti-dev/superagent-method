@@ -14,6 +14,8 @@ Ogni turno:
   tester (run_blind.sh, sessione sua, ripresa) → COSA FACCIO + A CHE CONCLUSIONE SONO ARRIVATO, o DECISIONE
   al master arriva solo COSA FACCIO (l'autore non legge le conclusioni dichiarate dal cliente).
 Un errore dell'API in un transcript (master o tester) rende la campagna NON VALIDA: niente rilanci automatici.
+Tetto morbido: tester fermato (sorvegliante o --max-turns) prima di rispondere → si riprende la sua sessione una
+volta con CHIUSURA (tetto 1) e risponde con ciò che ha visto; il turno porta «chiuso_dal_tetto». Senza risposta: NON VALIDA.
 Fine: il master riceve la partita intera e scrive il RESOCONTO; con --controllo un terzo agente leggero confronta
 le risposte del master col suo contesto. Uscita in DIR/<nome>/: campagna.json, resoconto.md, partita.md, transcript.
 Le sessioni salvate dalla CLI per master e tester si cancellano a fine campagna.
@@ -38,7 +40,11 @@ Solo quando hai deciso davvero scrivi DECISIONE: COMPRO | LASCIO, e perché, in 
 All'ultimo turno, se non hai deciso, scrivi DECISIONE: ASPETTO e cosa ti manca per decidere.
 Cita una fonte solo se l'hai aperta davvero in questa conversazione.
 Hai al massimo {turni} turni e {azioni} azioni online per turno; dopo la {soglia}ª azione smetti di cercare e rispondi.
+Ogni chiamata conta come azione: una ricerca, una pagina aperta, e nel browser anche aprire una scheda, scorrere, fare una schermata.
 """
+
+CHIUSURA = ("Le azioni di questo turno sono finite: niente altre ricerche né pagine. Rispondi adesso con quello che hai già "
+            "visto, nel formato COSA FACCIO / A CHE CONCLUSIONE SONO ARRIVATO (o DECISIONE se hai deciso).")
 
 
 def args(a):
@@ -178,19 +184,34 @@ def campagna(o):
         t, c, rc = lancia(ct, st, primo_t, ptest, out_t, o["modello-tester"], o["chiamate"], o["chrome"])
         primo_t = False
         C["costo_usd"] += c
+        chiuso = False
+        fermato = rc == 3 or t.startswith("[FERMATO dalla CLI: error_max_turns")  # sorvegliante o --max-turns
+        if fermato and not sezione(t, "COSA FACCIO", ()) and not sezione(t, "DECISIONE", ()):
+            # tetto morbido: fermato dal sorvegliante prima di rispondere → si riprende la sua sessione e gli si chiede
+            # la risposta con quello che ha già visto (tetto 1: niente nuove ricerche)
+            t2, c2, rc2 = lancia(ct, st, False, CHIUSURA, out_t + "-chiusura", o["modello-tester"], 1, o["chrome"])
+            C["costo_usd"] += c2
+            if rc2 == 4:
+                rc, t = 4, t2
+            elif sezione(t2, "COSA FACCIO", ()) or sezione(t2, "DECISIONE", ()):
+                t, rc, chiuso = t2, 0, True
         if rc == 4:
             C["valida"] = False; C["motivi"].append(f"tester turno {n}: errore API ({t.strip()[:120]})")
             C["turni"].append({"n": n, "master": msg, "master_note": note, "errore_api": t.strip()[:300]}); salva()
             break
         ok, rapporto = cieco(out_t, o["siti"])
         open(os.path.join(out_t, "cieco.txt"), "w").write(rapporto)
+        if chiuso:  # anche la ripresa di chiusura passa dal controllo cieco
+            ok2, rapporto2 = cieco(out_t + "-chiusura", o["siti"])
+            open(os.path.join(out_t + "-chiusura", "cieco.txt"), "w").write(rapporto2)
+            ok = ok and ok2
         mr = re.search(r"ricerche web: (\d+)\s+fetch: (\d+)", rapporto)
         ricerche = int(mr.group(1)) + int(mr.group(2)) if mr else 0
         fa = sezione(t, "COSA FACCIO", ("A CHE CONCLUSIONE SONO ARRIVATO", "DECISIONE")) or ""
         concl = sezione(t, "A CHE CONCLUSIONE SONO ARRIVATO", ("COSA FACCIO", "DECISIONE")) or ""
         dec = sezione(t, "DECISIONE", ())
         turno = {"n": n, "master": msg, "master_note": note, "riscritto": tent == 2, "tester_fa": fa,
-                 "tester_conclusione": concl, "decisione": dec, "cieco": ok, "interrotto": rc == 3, "ricerche": ricerche}
+                 "tester_conclusione": concl, "chiuso_dal_tetto": chiuso, "decisione": dec, "cieco": ok, "interrotto": rc == 3, "ricerche": ricerche}
         C["turni"].append(turno); salva()
         if not ok:
             C["valida"] = False; C["motivi"].append(f"tester turno {n}: check_blind SOSPETTO")
