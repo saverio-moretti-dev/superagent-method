@@ -30,6 +30,9 @@ Campagna (CAMP = DIR/campagne/<nome>; fuori da un argomento la memoria sta accan
                                               A3: rigioca STORIA dal turno N con un'altra risposta (extra bivi)
   campagne.py copilota GIRO [STORIA [--approva | --correggi "testo"|@file]]
                                               D1: risposte del master in attesa dell'autore (extra copilota)
+  campagne.py allenamento CAMP [STORIA [--turni 6 --chiamate 6 --nome N] | NOME --rispondi "testo"|@file]
+                                              D2: ruoli invertiti, il modello fa il protagonista di STORIA e l'autore
+                                              risponde (extra allenamento); senza altro: allenamenti e risposte attese
   campagne.py diario CAMP SCHEDA --da [CAMPAGNA/]GIRO/STORIA   A1: richiesta del diario nel personaggio dall'episodio
   campagne.py evento CAMP ID "testo" [--peso 1] [--dal-turno 1]  mazzo di eventi del mondo
 Schede
@@ -112,7 +115,7 @@ EXTRA = {
     "saga": ("campagna", True, "A1: lo stesso protagonista torna in una storia nuova con il suo diario"),
     "bivi": ("campagna", True, "A3: si rigioca una storia da un turno con un'altra risposta del personaggio esterno"),
     "copilota": ("campagna", True, "D1: l'autore approva o corregge le risposte del personaggio esterno"),
-    "allenamento": ("campagna", False, "D2: ruoli invertiti, il master fa il protagonista e l'autore risponde"),
+    "allenamento": ("campagna", True, "D2: ruoli invertiti, il master fa il protagonista e l'autore risponde"),
 }
 ESITI = ("COMPRA", "LASCIA", "INCOMPLETA")
 # Il diario di una saga resta nel mondo del protagonista: niente parole della prova
@@ -762,6 +765,75 @@ def copilota_cmd(giro, nome=None, approva=False, correggi=None):
     return 0
 
 
+def allenamento_cmd(o, S, s, cosa=None):
+    """D2: prepara un allenamento (non spende: scrive il comando), elenca quelli in attesa, o scrive la risposta dell'autore.
+    Vive in CAMP/allenamenti/<nome>/: fuori dai giri, dalla memoria e da analisi (è un uso, non un collaudo)."""
+    import glob
+    base = os.path.join(os.path.abspath(s), "allenamenti")
+    if cosa and os.path.isdir(os.path.join(base, cosa)) and not o.get("turni"):
+        d = os.path.join(base, cosa)
+        attesa = [f for f in sorted(glob.glob(os.path.join(d, "turno-*.json"))) if (leggi(f) or {}).get("stato") == "in attesa"]
+        if o.get("rispondi") is None:
+            for f in attesa:
+                x = leggi(f)
+                print(f"== {cosa} · turno {x['turno']} · dal {x.get('scritta', '?')}\nTI SCRIVE:\n{x['messaggio']}\n")
+            A = leggi(os.path.join(d, "allenamento.json")) or {}
+            print(f"{cosa}: {A.get('stato', 'non lanciato')}" + (f", esito {A['esito']}" if A.get("stato") == "finito" else ""))
+            return 0
+        if not attesa:
+            sys.exit(f"nessun messaggio in attesa in {cosa}")
+        r = o["rispondi"]
+        r = (open(r[1:], encoding="utf-8").read() if r.startswith("@") else r).strip()
+        if not r:
+            sys.exit("risposta vuota")
+        f = attesa[0]; x = leggi(f)
+        x.update(stato="risposta", risposta=r, deciso=ora())
+        tmp = f + ".tmp"
+        json.dump(x, open(tmp, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+        os.replace(tmp, f)
+        print(f"{cosa} turno {x['turno']}: risposta inviata (l'allenamento riparte da solo)")
+        return 0
+    if not cosa:
+        for d in sorted(glob.glob(os.path.join(base, "*"))):
+            A = leggi(os.path.join(d, "allenamento.json")) or {}
+            n = sum((leggi(f) or {}).get("stato") == "in attesa" for f in glob.glob(os.path.join(d, "turno-*.json")))
+            print(f"{os.path.basename(d)}: {A.get('stato', 'preparato, non lanciato')}" + (f" · {n} in attesa" if n else ""))
+        return 0
+    if not extra_attivo(S, "allenamento"):
+        sys.exit(f"extra «allenamento» spento: campagne.py extra {s} allenamento on")
+    c = next((x for x in S["storie"] if x["storia"] == cosa), None)
+    if not c:
+        sys.exit(f"storia sconosciuta: {cosa} (né allenamento esistente)")
+    prot, scena = carica_scheda(s, c["scheda"]), carica_scheda(s, S["scena"])
+    saga = bool(extra_attivo(S, "saga"))
+    b = problemi_scheda(prot, saga) + problemi_scheda(scena, saga)
+    if b:
+        print("NON SI PREPARA, blocca:\n- " + "\n- ".join(b)); return 1
+    k = 1
+    while os.path.exists(os.path.join(base, f"{cosa}-a{k}")):
+        k += 1
+    nome = o.get("nome") or f"{cosa}-a{k}"
+    d = os.path.join(base, nome)
+    if os.path.exists(d):
+        sys.exit(f"esiste già: {d}")
+    os.makedirs(d)
+    open(os.path.join(d, "protagonista.md"), "w", encoding="utf-8").write(blocco(prot, "CHI SEI", saga and bool(c.get("segue"))).split("\n", 1)[1])
+    ricevuto = variante_testo(scena, c.get("variante"))
+    apertura = "\n\n".join(x for x in [
+        "PRIMA: " + prot["campi"]["prima"]["valore"], "ADESSO: " + prot["campi"]["adesso"]["valore"],
+        "COME ARRIVA: " + scena["campi"]["come_arriva"]["valore"], "COSA RICEVI: " + (ricevuto or "")] if x)
+    open(os.path.join(d, "apertura.txt"), "w", encoding="utf-8").write(apertura)
+    cmd = (f'#!/bin/bash\nset -u\npython3 "{os.path.join(BASE, "allenamento.py")}" --dir "{d}" --protagonista "{d}/protagonista.md" '
+           f'--apertura "{d}/apertura.txt" --turni {int(o.get("turni") or 6)} --chiamate {int(o.get("chiamate") or 6)}\n')
+    p = os.path.join(d, "comando.sh")
+    open(p, "w", encoding="utf-8").write(cmd)
+    os.chmod(p, 0o755)
+    scrivi(os.path.join(d, "meta.json"), {"storia": cosa, "scheda": f"{prot['id']} v{prot['versione']}",
+                                          "scena": f"{scena['id']} v{scena['versione']}", "preparato": ora()})
+    print(f"allenamento {nome}: {p} (lo lancia chi coordina; poi le risposte: campagne.py allenamento {s} {nome} --rispondi \"…\")")
+    return 0
+
+
 def variante_testo(scena, variante):
     txt = scena["campi"]["cosa_riceve"]["valore"]
     if not variante:
@@ -1259,7 +1331,7 @@ def main(a):
         S["consegna"] = {"link": o.get("consegna", ""), "versione": o.get("versione", "")}
         scrivi(camp_file(s), S); print(f"campagna {s}"); return 0
     if cmd in ("stato", "verifica", "imposta", "protagonista", "evento", "controllo", "controlli", "genera",
-               "applica", "prepara", "quadro", "memoria", "diario", "bivio"):
+               "applica", "prepara", "quadro", "memoria", "diario", "bivio", "allenamento"):
         s = pos[1]; S = carica_camp(s)
     if cmd == "imposta":
         k, v = pos[2], pos[3]
@@ -1331,6 +1403,8 @@ def main(a):
             sys.exit("--dal-turno N --risposta \"testo\" (o @file)")
         return bivio(o, S, s, pos[2], pos[3], int(o["dal-turno"]),
                      open(o["risposta"][1:], encoding="utf-8").read() if o["risposta"].startswith("@") else o["risposta"])
+    if cmd == "allenamento":
+        return allenamento_cmd(o, S, s, pos[2] if len(pos) > 2 else None)
     if cmd == "copilota":
         corr = o.get("correggi")
         if corr is not None and corr.startswith("@"):

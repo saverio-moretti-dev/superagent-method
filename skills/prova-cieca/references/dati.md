@@ -64,8 +64,8 @@ Mai attivi da soli: si accendono per argomento o per campagna, e cosa non è acc
 | `taratura` (C3) | argomento | esiti di persone vere accanto a quelli delle storie (sotto) |
 | `saga` (A1) | campagna | lo stesso protagonista torna in una storia nuova con il suo diario |
 | `bivi` (A3) | campagna | si rigioca una storia da un turno N con un'altra risposta del personaggio esterno |
-| `copilota` (D1) | campagna | l'autore approva o corregge le risposte del personaggio esterno |
-| `allenamento` (D2) | campagna | ruoli invertiti: il master fa il protagonista, l'autore risponde |
+| `copilota` (D1) | campagna | l'autore approva o corregge le risposte del personaggio esterno (sotto) |
+| `allenamento` (D2) | campagna | ruoli invertiti: il modello fa il protagonista, l'autore risponde (sotto) |
 
 ## Saghe (A1, extra `saga`)
 Lo stesso protagonista torna mesi dopo in una storia nuova (stessa campagna o un'altra dello stesso argomento):
@@ -112,6 +112,24 @@ turno dopo il master riceve la risposta corretta come fatto delle schede. Attesa
 (default 120); poi `--copilota-scadenza ferma` (default: storia NON VALIDA) o `parte` (va la proposta, segnata `scaduta`).
 Ogni turno porta `"copilota": {stato, proposta}` (proposta solo se corretta); in `partita.md` la risposta è segnata
 «scritta dall'autore», «approvata dall'autore» o «non vista dall'autore».
+
+## Allenamento (D2, extra `allenamento`)
+Un uso nuovo, non un collaudo: ruoli invertiti. Il modello fa il protagonista di una storia (sua scheda + come arriva
+la consegna), l'autore risponde di persona come farebbe con un contatto vero.
+```
+campagne.py extra CAMP allenamento on
+campagne.py allenamento CAMP ep1 [--turni 6 --chiamate 6 --nome N]   # prepara CAMP/allenamenti/ep1-a1/ (non spende)
+bash CAMP/allenamenti/ep1-a1/comando.sh                               # lo lancia chi coordina (~ una storia senza master)
+campagne.py allenamento CAMP                                          # allenamenti e messaggi in attesa
+campagne.py allenamento CAMP ep1-a1                                   # cosa ti scrive il protagonista
+campagne.py allenamento CAMP ep1-a1 --rispondi "Le mando il listino."  # o --rispondi @file.txt
+```
+`allenamento.py` (stesso meccanismo a file del copilota): `turno-N.json` con `messaggio` e `stato: "in attesa"`,
+l'autore scrive `risposta` con `stato: "risposta"`; attesa massima `--attesa` minuti (default 120), poi INCOMPLETA.
+Le conclusioni del protagonista l'autore le vede solo alla fine. Uscita: `allenamento.json`, `partita.md`,
+`resoconto.md` (come è andata, risposte che hanno funzionato o fatto perdere terreno, domande impreviste, DA TENERE
+PER LA SCHEDA: proposte per il personaggio esterno, che si decidono dopo e non si applicano da sole).
+Gli allenamenti stanno fuori dai giri: non entrano in memoria, quadro, confronta o analisi.
 
 ## Esiti veri (C3, extra `taratura`)
 Quando una persona vera risponde alla consegna, l'esito si registra nell'argomento e si confronta con le storie:
