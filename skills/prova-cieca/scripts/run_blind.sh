@@ -76,24 +76,7 @@ RC=0; wait "$CPID" || RC=$?
 # chiuso dal sorvegliante dopo un turno finito (SIGTERM = 143): non è un errore
 if [ "$RC" = 143 ] && [ ! -f "$OUT/INTERROTTO" ] && grep -q '"type": *"result"' "$OUT/transcript.jsonl"; then RC=0; fi
 wait "$WPID" 2>/dev/null || true
-python3 -I - "$OUT" <<'PY'
-import json,os,sys
-o=sys.argv[1]; res=None; ultimo=""; esito=""
-for l in open(o+"/transcript.jsonl"):
-    try: e=json.loads(l)
-    except Exception: continue
-    if e.get("type")=="result" and res is None: res=e.get("result") or ""; esito=e.get("subtype","")  # solo il primo turno
-    if e.get("type")=="assistant":
-        t="".join(c.get("text","") for c in (e.get("message") or {}).get("content",[]) if c.get("type")=="text")
-        if t.strip(): ultimo=t
-if os.path.exists(o+"/INTERROTTO"):
-    res="[INTERROTTO: "+open(o+"/INTERROTTO").read().strip()+"]\n\n"+ultimo
-elif esito and esito!="success":
-    res="[FERMATO dalla CLI: "+esito+"]\n\n"+(res or ultimo)
-elif res is None:
-    res="[NESSUN RISULTATO: claude uscito senza evento result]\n\n"+ultimo
-open(o+"/risposta.txt","w").write(res)
-PY
+python3 -I "$(dirname "$0")/risposta.py" "$OUT"  # risposta.txt: primo result, o il testo col formato se dopo c'è un'altra azione
 if [ -f "$OUT/INTERROTTO" ]; then echo "interrotto (tetto $TURNS chiamate a strumenti): $OUT"; exit 3; fi
 [ "$RC" = 0 ] || { echo "claude uscito con codice $RC (es. tetto --max-turns della CLI): $OUT"; exit "$RC"; }
 echo "fatto: $OUT"

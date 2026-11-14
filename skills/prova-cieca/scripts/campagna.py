@@ -43,6 +43,9 @@ Hai al massimo {turni} turni e {azioni} azioni online per turno; dopo la {soglia
 Ogni chiamata conta come azione: una ricerca, una pagina aperta, e nel browser anche aprire una scheda, scorrere, fare una schermata.
 """
 
+REGOLA_CHROME = ("Nel browser: chiudi la scheda PRIMA di scrivere la risposta. La risposta (COSA FACCIO / A CHE CONCLUSIONE SONO "
+                 "ARRIVATO / DECISIONE) è l'ultima cosa che scrivi nel turno, dopo l'ultima azione.\n")  # prova CASA 14/11
+
 CHIUSURA = ("Le azioni di questo turno sono finite: niente altre ricerche né pagine. Rispondi adesso con quello che hai già "
             "visto, nel formato COSA FACCIO / A CHE CONCLUSIONE SONO ARRIVATO (o DECISIONE se hai deciso).")
 
@@ -132,7 +135,7 @@ def campagna(o):
     cm, ct = os.path.join(lavoro, "m"), os.path.join(lavoro, "t")
     sm, st = str(uuid.uuid4()), str(uuid.uuid4())
     soglia = max(1, o["chiamate"] - 3)
-    regole = REGOLE_TESTER.format(turni=o["turni"], azioni=o["chiamate"], soglia=soglia)
+    regole = REGOLE_TESTER.format(turni=o["turni"], azioni=o["chiamate"], soglia=soglia) + (REGOLA_CHROME if o["chrome"] else "")
     C = {"nome": o["nome"], "livello": o["livello"], "tester": o["tester"], "inizio": time.strftime("%Y-%m-%d %H:%M"),
          "modelli": {"master": o["modello-master"], "tester": o["modello-tester"]}, "turni": [],
          "esito": "INCOMPLETA", "valida": True, "motivi": [], "costo_usd": 0.0, "stato": "in corso"}
