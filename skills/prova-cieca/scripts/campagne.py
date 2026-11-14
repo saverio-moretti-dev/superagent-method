@@ -26,6 +26,8 @@ Campagna (CAMP = DIR/campagne/<nome>; fuori da un argomento la memoria sta accan
   campagne.py imposta CAMP chiave valore      campo della campagna (domanda, consegna.link, seme, …)
   campagne.py protagonista CAMP STORIA SCHEDA [--variante V] [--segue [CAMPAGNA/]GIRO/STORIA]
                                               aggiunge una storia (un protagonista); --segue: episodio successivo (extra saga)
+  campagne.py bivio CAMP GIRO STORIA --dal-turno N --risposta "testo"|@file [--nome S]
+                                              A3: rigioca STORIA dal turno N con un'altra risposta (extra bivi)
   campagne.py diario CAMP SCHEDA --da [CAMPAGNA/]GIRO/STORIA   A1: richiesta del diario nel personaggio dall'episodio
   campagne.py evento CAMP ID "testo" [--peso 1] [--dal-turno 1]  mazzo di eventi del mondo
 Schede
@@ -106,7 +108,7 @@ RISERVATI = {"diario"}  # campi usati solo se la campagna sceglie l'extra «saga
 EXTRA = {
     "taratura": ("argomento", True, "C3: esiti di persone vere (anonimi) accanto a quelli delle storie"),
     "saga": ("campagna", True, "A1: lo stesso protagonista torna in una storia nuova con il suo diario"),
-    "bivi": ("campagna", False, "A3: si rigioca una storia da un turno con un'altra risposta del personaggio esterno"),
+    "bivi": ("campagna", True, "A3: si rigioca una storia da un turno con un'altra risposta del personaggio esterno"),
     "copilota": ("campagna", False, "D1: l'autore approva o corregge le risposte del personaggio esterno"),
     "allenamento": ("campagna", False, "D2: ruoli invertiti, il master fa il protagonista e l'autore risponde"),
 }
@@ -676,6 +678,42 @@ def diario(o, S, s, sid, rif):
     return 0
 
 
+def bivio(o, S, s, giro, nome, n, risposta):
+    """A3: prepara la storia NOME rigiocata dal turno N con la risposta dell'autore. Non spende: scrive il comando."""
+    if not extra_attivo(S, "bivi"):
+        sys.exit(f"extra «bivi» spento: campagne.py extra {s} bivi on")
+    giro = os.path.abspath(giro)
+    f = file_storia(giro, nome)
+    if not f:
+        sys.exit(f"storia non giocata: {nome} in {giro}")
+    C = leggi(f)
+    if C.get("bivio"):
+        nome0 = C["bivio"]["origine"]
+        print(f"avviso: {nome} è già un bivio di {nome0}: il nuovo eredita anche il suo cambio")
+    fatti = [t for t in C.get("turni", []) if t.get("tester_fa") and t["n"] < n]
+    if n < 2 or len(fatti) != n - 1:
+        sys.exit(f"dal turno {n} servono i turni 1..{n - 1} con un'azione del tester (ce ne sono {len(fatti)})")
+    blocchi = open(os.path.join(giro, "comandi.sh"), encoding="utf-8").read().split('python3 "$C"')
+    orig = next((b for b in blocchi[1:] if re.search(rf"--nome {re.escape(nome)}\b", b)), None)
+    if orig is None:
+        sys.exit(f"comando di {nome} non trovato in comandi.sh")
+    orig = re.split(r"\n(?:wait|python3)", orig.rstrip().rstrip("&").rstrip())[0].rstrip().rstrip("&").rstrip()
+    k = 1
+    while os.path.exists(os.path.join(giro, f"{nome}-b{n}-{k}")) or os.path.exists(os.path.join(giro, "_prep", f"{nome}-b{n}-{k}")):
+        k += 1
+    nuovo = o.get("nome") or f"{nome}-b{n}-{k}"
+    d = os.path.join(giro, "_prep", nuovo)
+    os.makedirs(d, exist_ok=True)
+    open(os.path.join(d, "risposta-bivio.txt"), "w", encoding="utf-8").write(risposta.strip() + "\n")
+    cmd = re.sub(rf"--nome {re.escape(nome)}\b", f"--nome {nuovo}", orig)
+    cmd = f'#!/bin/bash\nset -u\nC="{os.path.join(BASE, "storia.py")}"\npython3 "$C"{cmd} \\\n  --bivio "{f}" --dal-turno {n} --risposta "{d}/risposta-bivio.txt"\n'
+    p = os.path.join(giro, f"comandi-{nuovo}.sh")
+    open(p, "w", encoding="utf-8").write(cmd)
+    os.chmod(p, 0o755)
+    print(f"bivio {nuovo}: {nome} dal turno {n} con la risposta nuova → {p} (lo lancia chi coordina; poi: campagne.py confronta {giro} {nome} {nuovo})")
+    return 0
+
+
 def variante_testo(scena, variante):
     txt = scena["campi"]["cosa_riceve"]["valore"]
     if not variante:
@@ -1171,7 +1209,7 @@ def main(a):
         S["consegna"] = {"link": o.get("consegna", ""), "versione": o.get("versione", "")}
         scrivi(camp_file(s), S); print(f"campagna {s}"); return 0
     if cmd in ("stato", "verifica", "imposta", "protagonista", "evento", "controllo", "controlli", "genera",
-               "applica", "prepara", "quadro", "memoria", "diario"):
+               "applica", "prepara", "quadro", "memoria", "diario", "bivio"):
         s = pos[1]; S = carica_camp(s)
     if cmd == "imposta":
         k, v = pos[2], pos[3]
@@ -1238,6 +1276,11 @@ def main(a):
         return genera(o, S, s, pos[2], o.get("campo"))
     if cmd == "applica":
         return applica(o, S, s, pos[2], pos[3])
+    if cmd == "bivio":
+        if not o.get("dal-turno") or not o.get("risposta"):
+            sys.exit("--dal-turno N --risposta \"testo\" (o @file)")
+        return bivio(o, S, s, pos[2], pos[3], int(o["dal-turno"]),
+                     open(o["risposta"][1:], encoding="utf-8").read() if o["risposta"].startswith("@") else o["risposta"])
     if cmd == "diario":
         if not o.get("da"):
             sys.exit("--da GIRO/STORIA (o CAMPAGNA/GIRO/STORIA): l'episodio da cui nasce il diario")

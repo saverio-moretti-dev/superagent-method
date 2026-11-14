@@ -81,6 +81,19 @@ dell'episodio, diario vuoto o con parole della prova (test, turno, giro, esiti�
 con `segue`: nel contesto del master e nell'apertura del tester («cosa ti ricordi di quando l'hai già incontrato»).
 I profili non portano il diario: appartiene a una sola linea di episodi.
 
+## Bivi (A3, extra `bivi`)
+«E se avessi risposto diversamente?»: si rigioca una storia dal turno N cambiando solo la risposta del personaggio esterno.
+```
+campagne.py extra CAMP bivi on
+campagne.py bivio CAMP GIRO ep1 --dal-turno 3 --risposta "Le posso proporre tre rate."   # o --risposta @file.txt
+bash GIRO/comandi-ep1-b3-1.sh          # lo lancia chi coordina (spende come una storia, dal turno N in poi)
+campagne.py confronta GIRO ep1 ep1-b3-1
+```
+`storia.py --bivio ORIGINE/storia.json --dal-turno N --risposta FILE`: i turni 1..N-1 si copiano con `"ereditato": true`,
+tester e master partono in sessioni nuove con quei turni come ricordo; la risposta passa da check_fuga (non dal
+controllo del turno: cambiare le condizioni è lo scopo). `storia.json` ha `"bivio": {da, origine, dal_turno, risposta,
+esito_origine}`. I bivi non entrano negli esiti per profilo della memoria (non sono storie previste dal giro).
+
 ## Esiti veri (C3, extra `taratura`)
 Quando una persona vera risponde alla consegna, l'esito si registra nell'argomento e si confronta con le storie:
 ```

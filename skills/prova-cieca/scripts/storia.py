@@ -10,6 +10,7 @@ Uso:
               [--controllo haiku]
               [--apertura APERTURA.txt] [--copia frasi.txt] [--eventi eventi.json] [--ritardo "due giorni"]
               [--controllo-turno haiku] [--controllo-turno-azione ferma|segna]
+              [--bivio ORIGINE/storia.json --dal-turno N --risposta RISPOSTA.txt]
   (i file --apertura/--copia/--eventi li prepara campagne.py prepara, dalle schede approvate)
   storia.py indice DIR        rifà DIR/giro.json dalle storie presenti
 
@@ -29,6 +30,10 @@ di --copia deve comparire identica nel messaggio, altrimenti il master lo riscri
 Fine: il master riceve la partita intera e scrive il RESOCONTO; con --controllo un terzo agente leggero confronta
 le risposte del master col suo contesto. Uscita in DIR/<nome>/: storia.json, resoconto.md, partita.md, transcript.
 Le sessioni salvate dalla CLI per master e tester si cancellano a fine storia.
+--bivio (extra «bivi», A3; lo prepara campagne.py bivio): rigioca una storia già giocata dal turno N con un'altra risposta
+del personaggio esterno, scritta dall'autore. I turni 1..N-1 si ereditano (copiati, «ereditato») e tester e master
+partono in sessioni nuove con quei turni come ricordo; la risposta nuova passa da check_fuga, non dal controllo del turno
+(cambiare le condizioni è lo scopo del bivio). Solo dalla stessa storia: niente da altre storie o altri tester.
 Exit 0 = finita (qualunque esito), 1 = non valida o errore."""
 import json, os, re, shutil, subprocess, sys, tempfile, time, uuid
 
@@ -64,7 +69,7 @@ def args(a):
     o = {"livello": 3, "turni": 6, "chiamate": 12, "modello-tester": "sonnet", "modello-master": "sonnet",
          "vietate": None, "chrome": False, "siti": "", "controllo": None,
          "apertura": None, "copia": None, "eventi": None, "ritardo": "", "controllo-turno": None,
-         "controllo-turno-azione": "ferma"}
+         "controllo-turno-azione": "ferma", "bivio": None, "dal-turno": None, "risposta": None}
     i = 0
     while i < len(a):
         k = a[i].lstrip("-")
@@ -73,6 +78,10 @@ def args(a):
         o[k] = a[i + 1]; i += 2
     for k in ("livello", "turni", "chiamate"):
         o[k] = int(o[k])
+    if o["bivio"]:
+        if not o["dal-turno"] or not o["risposta"]:
+            sys.exit("--bivio chiede --dal-turno N e --risposta FILE")
+        o["dal-turno"] = int(o["dal-turno"])
     if o["livello"] == 2:
         o["turni"] = 2  # scena: azione, una risposta, decisione
     return o
@@ -189,6 +198,31 @@ def storia(o):
     if o["apertura"]:
         C["apertura"] = open(o["apertura"], encoding="utf-8").read()
     controlli_turno = []
+    B = None
+    if o["bivio"]:
+        O = json.load(open(o["bivio"], encoding="utf-8"))
+        N = o["dal-turno"]
+        fatti = [t for t in O.get("turni", []) if t.get("tester_fa") and t["n"] < N]
+        if N < 2 or len(fatti) != N - 1:
+            sys.exit(f"bivio: dal turno {N} servono i turni 1..{N - 1} giocati con un'azione del tester (ce ne sono {len(fatti)})")
+        risposta = open(o["risposta"], encoding="utf-8").read().strip()
+        fuga = check_fuga.trova(risposta, check_fuga.SEMPRE + vietate) + check_fuga.segnaposto(risposta)
+        if fuga:
+            sys.exit("bivio: la risposta contiene parole che il tester non deve leggere: " + ", ".join(fuga))
+        B = {"da": os.path.abspath(o["bivio"]), "origine": O.get("nome"), "dal_turno": N, "risposta": risposta,
+             "esito_origine": O.get("esito")}
+        C["bivio"] = B
+        C["storia"], C["note_storia"] = O.get("storia"), O.get("note_storia", "")
+        C["turni"] = [dict(t, ereditato=True) for t in fatti]
+
+    def ricordo(turni, per_master):
+        r = []
+        for tu in turni:
+            if tu["n"] > 1:
+                r.append(f"Turno {tu['n']} — {'hai risposto' if per_master else 'hai ricevuto'}: {tu['master']}")
+            r.append(f"Turno {tu['n']} — {'il tester ha fatto' if per_master else 'hai fatto'}: {tu['tester_fa']}"
+                     + ("" if per_master else f"\n  avevi concluso: {tu['tester_conclusione']}"))
+        return "\n".join(r)
 
     def controllo_turno(n, msg):
         """C4: risposta del master confrontata subito col contesto. Ritorna True se la storia può continuare."""
@@ -226,7 +260,9 @@ def storia(o):
         return t, [e["id"] for e in ev]
 
     salva()
-    if o["apertura"]:
+    if B:
+        primo = None
+    elif o["apertura"]:
         primo = (contesto + f"\n\n== TESTER DI QUESTA STORIA ==\n{o['tester']}\n\nLivello {o['livello']}, al massimo "
                  f"{o['turni']} turni del tester.\n\n== STORIA DI PARTENZA APPROVATA ==\n{C['apertura']}\n\n"
                  "Ora il PRIMO TURNO, nel formato MESSAGGIO AL TESTER / NOTE PRIVATE: metti in scena questa storia per il tester, "
@@ -246,14 +282,29 @@ def storia(o):
              "la scena; se il tester vuole contattare l'autore, il contatto arriva subito. Non inventare dati che il "
              "contesto non dà (numeri di telefono, indirizzi, prezzi, condizioni): scrivili in forma generica (\"il "
              "numero che ti ha girato\") o segnali come BUCO. Mai segnaposto tra parentesi quadre.")
-    msg, note, tent = master(primo, 0, nuovo=True, copia=copia)
-    if msg is not None and not controllo_turno(0, msg):
-        msg = None
-    C["storia"] = msg; C["note_storia"] = note
-    n, primo_t = 1, True
+    m_nuovo, m_recap = False, ""
+    if B:
+        # bivio: la risposta dell'autore apre il turno N; il master parte in una sessione nuova alla prima risposta
+        msg, note, tent = B["risposta"], "(risposta scelta dall'autore: bivio)", 1
+        n, primo_t = B["dal_turno"], True
+        m_nuovo = True
+        m_recap = (contesto + f"\n\n== TESTER DI QUESTA STORIA ==\n{o['tester']}\n\nLivello {o['livello']}, al massimo "
+                   f"{o['turni']} turni del tester.\n\n== STORIA FIN QUI (già giocata: non cambiarla) ==\nStoria di partenza: "
+                   f"{C['storia']}\n{ricordo(C['turni'], True)}\nTurno {n} — hai risposto: {B['risposta']}\n\nQuest'ultima risposta "
+                   "l'ha decisa l'autore: vale come un fatto delle schede, da qui resta coerente con essa.\n\n")
+    else:
+        msg, note, tent = master(primo, 0, nuovo=True, copia=copia)
+        if msg is not None and not controllo_turno(0, msg):
+            msg = None
+        C["storia"] = msg; C["note_storia"] = note
+        n, primo_t = 1, True
     while msg is not None and n <= o["turni"]:
         ultimo = n == o["turni"]
-        if primo_t:
+        if primo_t and B:
+            ptest = (C["storia"] + "\n" + regole + "\n\nLa storia è già cominciata. Ecco cosa è successo finora (sono i tuoi "
+                     "ricordi):\n" + ricordo(C["turni"], False) + "\n\nRisposta che ricevi adesso:\n\n" + msg
+                     + ("\n\nÈ il tuo ultimo turno: scrivi la DECISIONE (COMPRO, LASCIO o ASPETTO)." if ultimo else ""))
+        elif primo_t:
             ptest = msg + "\n" + regole
         else:
             ptest = "Risposta che ricevi:\n\n" + msg + ("\n\nÈ il tuo ultimo turno: scrivi la DECISIONE (COMPRO, LASCIO o ASPETTO)." if ultimo else "")
@@ -307,8 +358,9 @@ def storia(o):
                 C["motivi"].append(f"tester turno {n}: interrotto dal tetto di chiamate prima di rispondere (alzare --chiamate)")
             break
         extra, ev_ids = extra_mondo(n)
-        msg, note, tent = master(f"Turno {n} del tester. Il tester fa:\n\n{fa}\n\nRispondi come l'autore o il mondo, "
-                                 "formato MESSAGGIO AL TESTER / NOTE PRIVATE." + extra, n)
+        msg, note, tent = master(m_recap + f"Turno {n} del tester. Il tester fa:\n\n{fa}\n\nRispondi come l'autore o il mondo, "
+                                 "formato MESSAGGIO AL TESTER / NOTE PRIVATE." + extra, n, nuovo=m_nuovo)
+        m_nuovo, m_recap = False, ""
         if ev_ids:
             C["turni"][-1]["eventi_dopo"] = ev_ids
         if msg is not None and not controllo_turno(n, msg):
@@ -322,17 +374,20 @@ def storia(o):
     # resoconto: ora il master legge anche le conclusioni dichiarate dal tester (la partita è chiusa)
     partita = [f"# Storia {o['nome']} — livello {o['livello']}\n\nTester (per il master): {o['tester']}\n",
                f"## Storia di partenza\n{C.get('storia') or '(nessuna)'}\n"]
+    if B:
+        partita.insert(1, f"BIVIO: rigiocata da «{B['origine']}» (esito {B['esito_origine']}) dal turno {B['dal_turno']} con la "
+                          "risposta dell'autore cambiata. I turni prima sono ereditati.\n")
     for tu in C["turni"]:
         if "errore_api" in tu:
             continue
         if tu["n"] > 1:
             partita.append(f"## Master, risposta al turno {tu['n'] - 1}\n{tu['master']}\n")
-        partita.append(f"## Tester, turno {tu['n']}\nCOSA FACCIO: {tu['tester_fa']}\nA CHE CONCLUSIONE SONO ARRIVATO: {tu['tester_conclusione']}\n"
+        partita.append(f"## Tester, turno {tu['n']}{' (ereditato)' if tu.get('ereditato') else ''}\nCOSA FACCIO: {tu['tester_fa']}\nA CHE CONCLUSIONE SONO ARRIVATO: {tu['tester_conclusione']}\n"
                        + (f"DECISIONE: {tu['decisione']}\n" if tu["decisione"] else ""))
     testo_partita = "\n".join(partita)
     open(os.path.join(dove, "partita.md"), "w", encoding="utf-8").write(testo_partita)
     if C.get("storia"):
-        r, c, rc_r = lancia(cm, sm, False, f"La storia è chiusa (esito {C['esito']}). Ecco la partita intera, compresi "
+        r, c, rc_r = lancia(cm, sm, m_nuovo, m_recap + f"La storia è chiusa (esito {C['esito']}). Ecco la partita intera, compresi "
                          f"le conclusioni dichiarate dal tester che durante il gioco non vedevi:\n\n{testo_partita}\n\nScrivi il "
                          "RESOCONTO nel formato fisso del tuo contesto.", os.path.join(dove, "m-resoconto"),
                          o["modello-master"], 4)
