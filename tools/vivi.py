@@ -20,7 +20,20 @@ import glob, json, os, re, subprocess, sys, time
 
 CASA = os.path.expanduser("~")
 CLAUDE = os.path.join(CASA, ".local", "bin", "claude")
-NORMALI = {"caffeinate"}   # fixed children of every session, not background work
+# Fixed children of every session (caffeinate, MCP servers, LSP), not background work. Single list, also used by
+# riavvia.py. Safe to exclude by name: Monitor and background Bash always run inside a /bin/zsh «eval '…'» wrapper,
+# so a real task is never a direct node/npm/python child (14/11: `npm exec <mcp-server>` alive for a day blocked
+# every restart of a session as «background work»).
+NORMALI = frozenset({"caffeinate", "node", "clangd", "npm", "npx", "uv", "uvx", "python", "python3", "bun", "bunx",
+                     "deno", "docker"})
+
+
+def e_normale(cmd):
+    """True if the process command line (or bare process name) belongs to a fixed child, not to background work."""
+    if not cmd:
+        return True
+    base = os.path.basename(cmd.split()[0])
+    return base in NORMALI or re.fullmatch(r"python3\.\d+", base) is not None
 
 
 def ps(pid, campi):
@@ -82,7 +95,7 @@ def figli(pid):
     vivi = []
     for p in out:
         cmd = ps(p, "command")
-        if not cmd or os.path.basename(cmd.split()[0]) in NORMALI:
+        if e_normale(cmd):
             continue
         c = comando_eval(cmd)
         if c is not None:

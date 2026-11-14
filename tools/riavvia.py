@@ -105,7 +105,8 @@ QUIETE_CLEAR_S = 2     # dopo /clear, se la trascrizione nuova ha solo /clear + 
                        # (il SUP risulta busy per il riavvia.py stesso in sottofondo; trascrizione ferma da 20:20:47)
 SOTTOAGENTE_VIVO_S = 120    # trascrizione di un sotto-agente scritta da meno di tanto e non conclusa = vivo
 SOTTOAGENTE_DUBBIO_S = 1800 # non conclusa e scritta da meno di 30 min = dubbio → niente riavvio (D4 del 12/11)
-PROCESSI_NORMALI = ("caffeinate", "node", "clangd", "npm", "npx", "uv", "uvx", "python", "python3")  # figli fissi (MCP, LSP)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from vivi import e_normale  # figli fissi (caffeinate, MCP, LSP): una lista sola, in vivi.py
 FINE_TURNO = ("turn_duration", "stop_hook_summary")
 SOLO_DATI = {"last-prompt", "tools-used", "bridge-session", "file-history-snapshot", "summary", "custom-title",
              "ai-title", "agent-name", "mode", "session-owner", "cost-state", "atis-latch", "permission-mode"}  # voci che non sono lavoro; ogni altro tipo (anche sconosciuto) conta come lavoro
@@ -318,7 +319,7 @@ def figli_lavoro(pid):
     figli = []
     for riga in out.splitlines():
         p, _, nome = riga.strip().partition(" ")
-        if nome and os.path.basename(nome) not in PROCESSI_NORMALI:
+        if nome and not e_normale(nome):
             figli.append(f"{nome} {p}")
     return figli
 
