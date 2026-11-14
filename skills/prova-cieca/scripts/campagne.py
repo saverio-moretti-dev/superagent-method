@@ -24,7 +24,9 @@ Campagna (CAMP = DIR/campagne/<nome>; fuori da un argomento la memoria sta accan
   campagne.py stato CAMP                      riassunto: schede, stati, cosa blocca
   campagne.py verifica CAMP                   controllo di completezza (exit 1 se qualcosa blocca il gioco)
   campagne.py imposta CAMP chiave valore      campo della campagna (domanda, consegna.link, seme, …)
-  campagne.py protagonista CAMP STORIA SCHEDA [--variante V]   aggiunge una storia (un protagonista)
+  campagne.py protagonista CAMP STORIA SCHEDA [--variante V] [--segue [CAMPAGNA/]GIRO/STORIA]
+                                              aggiunge una storia (un protagonista); --segue: episodio successivo (extra saga)
+  campagne.py diario CAMP SCHEDA --da [CAMPAGNA/]GIRO/STORIA   A1: richiesta del diario nel personaggio dall'episodio
   campagne.py evento CAMP ID "testo" [--peso 1] [--dal-turno 1]  mazzo di eventi del mondo
 Schede
   campagne.py scheda nuova CAMP TIPO ID [--profilo P [--versione N]]   TIPO: protagonista|esterno|scena|secondario
@@ -68,7 +70,7 @@ STRUTTURE = {
         ("abitudini_ricerca", False, "come si informa"),
         ("cosa_non_sa", False, "lacune realistiche"),
         ("variazioni", False, "casualità 2: tratti variati decisi PRIMA del giro, scritti qui"),
-        ("diario", False, "RISERVATO saghe (A1): cosa ricorda il personaggio di episodi passati; non costruito"),
+        ("diario", False, "solo con l'extra «saga» (A1): cosa ricorda lui degli episodi passati, in prima persona, mai dati della prova"),
     ],
     "esterno": [
         ("come_si_presenta", True, "solo questo nome può arrivare al protagonista"),
@@ -103,12 +105,15 @@ RISERVATI = {"diario"}  # campi usati solo se la campagna sceglie l'extra «saga
 # livello: dove si accende. costruito: False = previsto, non ancora accendibile.
 EXTRA = {
     "taratura": ("argomento", True, "C3: esiti di persone vere (anonimi) accanto a quelli delle storie"),
-    "saga": ("campagna", False, "A1: lo stesso protagonista torna in una storia nuova con il suo diario"),
+    "saga": ("campagna", True, "A1: lo stesso protagonista torna in una storia nuova con il suo diario"),
     "bivi": ("campagna", False, "A3: si rigioca una storia da un turno con un'altra risposta del personaggio esterno"),
     "copilota": ("campagna", False, "D1: l'autore approva o corregge le risposte del personaggio esterno"),
     "allenamento": ("campagna", False, "D2: ruoli invertiti, il master fa il protagonista e l'autore risponde"),
 }
 ESITI = ("COMPRA", "LASCIA", "INCOMPLETA")
+# Il diario di una saga resta nel mondo del protagonista: niente parole della prova
+DIARIO_VIETATO = [(r"\b(test|prova cieca|simulazion\w*|tester|master|giro|turno|campagna|valutazion\w*)\b", "parole della prova"),
+                  (r"\b(COMPRA|LASCIA|INCOMPLETA)\b", "esito della prova"), (r"\b(AI|IA|intelligenza artificiale|modello)\b", "chi la gioca")]
 # Anonimato degli esiti veri: niente contatti, indirizzi web, profili social, numeri lunghi
 NON_ANONIMO = [(r"[\w.+-]+@[\w-]+\.[\w.]+", "indirizzo email"), (r"https?://|www\.", "indirizzo web"),
                (r"(?<!\w)@\w{2,}", "profilo social"), (r"\+?\d[\d .-]{6,}\d", "numero di telefono o codice"),
@@ -475,8 +480,8 @@ def nuova_scheda(tipo, sid):
             "personalizzati": []}
 
 
-def problemi_scheda(sc):
-    """Ciò che impedisce di approvare (lista di stringhe)."""
+def problemi_scheda(sc, saga=False):
+    """Ciò che impedisce di approvare (lista di stringhe). saga: la campagna ha acceso l'extra «saga» (diario ammesso)."""
     p = []
     for n, obbl, _ in STRUTTURE[sc["tipo"]]:
         if obbl and campo_vuoto(sc["campi"].get(n)):
@@ -484,8 +489,12 @@ def problemi_scheda(sc):
     for n, c in sc["campi"].items():
         if campo_vuoto(c):
             continue
-        if n in RISERVATI:
-            p.append(f"{sc['id']}: «{n}» è riservato a una funzione non ancora decisa: va lasciato vuoto")
+        if n in RISERVATI and not saga:
+            p.append(f"{sc['id']}: «{n}» si usa solo con l'extra «saga» acceso nella campagna: va lasciato vuoto")
+        if n == "diario" and saga:
+            for rx, cosa in DIARIO_VIETATO:
+                if re.search(rx, str(c["valore"]), re.I):
+                    p.append(f"{sc['id']}: il diario parla della prova ({cosa}): solo ciò che ricorda lui, nel suo mondo")
         if c.get("fonte") in DA_CONFERMARE:
             p.append(f"{sc['id']}: «{n}» ha fonte {c['fonte']}: da confermare con l'autore")
         if sc["tipo"] == "protagonista":
@@ -558,7 +567,7 @@ def verifica(o, S, s):
         sc = carica_scheda(s, sid)
         if sc["stato"] != "approvata":
             b.append(f"{sid}: in bozza (v{sc['versione']})")
-        b += problemi_scheda(sc)
+        b += problemi_scheda(sc, extra_attivo(S, "saga"))
     for c in S.get("storie", []):
         ctrl = risolvi_controlli(o, S, c["storia"])
         for k, ammessi in VALORI.items():
@@ -584,6 +593,8 @@ def verifica(o, S, s):
         if valore(ctrl, "browser") and valore(ctrl, "chiamate") < valore(ctrl, "chiamate_browser_min"):
             a.append(f"{c['storia']}: browser con {valore(ctrl, 'chiamate')} chiamate per turno: ne servono almeno "
                      f"{valore(ctrl, 'chiamate_browser_min')} (prepara le alza)")
+        if c.get("segue"):
+            b += problemi_segue(s, S, c, p)
         if c.get("variante") and S.get("scena") and versioni(s, S["scena"]):
             if not variante_testo(carica_scheda(s, S["scena"]), c["variante"]):
                 b.append(f"{c['storia']}: variante «{c['variante']}» assente in cosa_riceve della scena")
@@ -591,6 +602,78 @@ def verifica(o, S, s):
     if att == "vivo" and not S.get("mazzo"):
         a.append("campagna: attività del mondo «vivo» ma il mazzo di eventi è vuoto")
     return b, a
+
+
+def trova_storia_giocata(s, rif):
+    """rif = GIRO/STORIA (stessa campagna) o CAMPAGNA/GIRO/STORIA (stesso argomento) → (cartella giro, nome, scheda giocata)."""
+    parti = rif.strip("/").split("/")
+    if len(parti) == 2:
+        camp = s
+    elif len(parti) == 3:
+        arg = argomento_di(s)
+        if not arg:
+            return None, None, None, "un episodio di un'altra campagna si cerca solo dentro lo stesso argomento"
+        camp = os.path.join(arg, "campagne", parti[0])
+    else:
+        return None, None, None, f"riferimento «{rif}»: GIRO/STORIA o CAMPAGNA/GIRO/STORIA"
+    giro, nome = os.path.join(camp, "giri", parti[-2]), parti[-1]
+    if not file_storia(giro, nome):
+        return None, None, None, f"episodio «{rif}» non giocato (manca storia.json)"
+    meta = leggi(os.path.join(giro, "giro-meta.json"), {})
+    sch = next((x.get("scheda") for x in meta.get("storie_previste", []) if x["nome"] == nome), None)
+    return giro, nome, sch, None
+
+
+def problemi_segue(s, S, c, p):
+    """A1: una storia che segue un episodio. Il diario passa solo dallo stesso protagonista (stessa scheda), mai da un altro."""
+    b = []
+    if not extra_attivo(S, "saga"):
+        return [f"{c['storia']}: segue «{c['segue']}» ma l'extra «saga» è spento (campagne.py extra CAMP saga on)"]
+    giro, nome, sch, err = trova_storia_giocata(s, c["segue"])
+    if err:
+        return [f"{c['storia']}: {err}"]
+    if not sch or sch.split(" v")[0] != c["scheda"]:
+        b.append(f"{c['storia']}: l'episodio «{c['segue']}» era di {sch or 'una scheda sconosciuta'}, non di {c['scheda']}: "
+                 "una saga continua solo lo stesso protagonista")
+    elif sch == f"{p['id']} v{p['versione']}":
+        b.append(f"{c['storia']}: la scheda {c['scheda']} è la stessa versione dell'episodio: la sua vita è andata avanti "
+                 "(aggiorna «adesso») e il diario va scritto (campagne.py diario)")
+    if campo_vuoto(p["campi"].get("diario")):
+        b.append(f"{c['storia']}: manca il diario di {c['scheda']} (campagne.py diario CAMP {c['scheda']} --da {c['segue']})")
+    return b
+
+
+def diario(o, S, s, sid, rif):
+    """A1: richiesta (non spesa) per il diario nel personaggio, dalla partita di un episodio dello stesso protagonista."""
+    if not extra_attivo(S, "saga"):
+        sys.exit(f"extra «saga» spento: campagne.py extra {s} saga on")
+    sc = carica_scheda(s, sid)
+    if sc["tipo"] != "protagonista":
+        sys.exit("il diario è solo del protagonista")
+    giro, nome, sch, err = trova_storia_giocata(s, rif)
+    if err:
+        sys.exit(err)
+    if not sch or sch.split(" v")[0] != sid:
+        sys.exit(f"l'episodio «{rif}» era di {sch or 'una scheda sconosciuta'}: il diario passa solo dallo stesso protagonista")
+    C = leggi(file_storia(giro, nome))
+    partita = "\n".join(f"Momento {t['n']}: {t.get('master', '')}\nCosa ha fatto: {t.get('tester_fa', '')}\n"
+                        f"Cosa ha concluso: {t.get('tester_conclusione', '')}" + (f"\nHa deciso: {t['decisione']}" if t.get("decisione") else "")
+                        for t in C.get("turni", []) if t.get("tester_fa"))
+    prima = (sc["campi"].get("diario") or {}).get("valore", "")
+    prompt = (f"Sei {(sc['campi'].get('nome_eta_luogo') or {}).get('valore', 'il protagonista')}. Qualche mese fa ti è successo "
+              f"quello che c'è sotto. Scrivi, in prima persona e con le tue parole, cosa ti è rimasto: chi hai incontrato, cosa "
+              "ti ha colpito, cosa ti ha fatto storcere il naso, cosa hai deciso e perché, cosa ti è rimasto in sospeso. "
+              "Ricordi come ricorda una persona: i dettagli piccoli si perdono, l'impressione resta. Al massimo 10 righe.\n"
+              "Vietato: parlare di prove, simulazioni, turni, giri, valutazioni; dire cosa farai la prossima volta.\n"
+              + (f"\nCosa ricordavi già da prima (tienilo, aggiungi):\n{prima}\n" if prima else "")
+              + f"\nCom'è andata:\n{partita}\n\nRispondi solo con il testo del diario.")
+    rq = {"tipo": "diario", "campagna": S["id"], "scheda": sid, "versione": sc["versione"], "da": rif, "creata": ora(),
+          "stato": "in coda", "prompt": prompt}
+    p = os.path.join(s, "richieste", f"diario-{sid}-{time.strftime('%Y%m%d-%H%M%S')}.json")
+    scrivi(p, rq)
+    print(f"richiesta in coda: {p}. La esegue chi coordina; poi: campagne.py scheda imposta {s} {sid} diario \"…\" "
+          "--fonte GENERATO (l'autore lo legge, lo corregge e lo conferma)")
+    return 0
 
 
 def variante_testo(scena, variante):
@@ -618,13 +701,13 @@ def etichetta(n):
     return ETICHETTE.get(n) or n.replace("_", " ").capitalize()
 
 
-def blocco(sc, titolo):
+def blocco(sc, titolo, saga=False):
     out = [f"== {titolo} ({sc['id']} v{sc['versione']}) =="]
     for n, _, nota in STRUTTURE[sc["tipo"]]:
         c = sc["campi"].get(n)
-        if n in RISERVATI or campo_vuoto(c):
+        if (n in RISERVATI and not saga) or campo_vuoto(c):
             continue
-        out.append(f"{etichetta(n)}: {c['valore']}")
+        out.append(("Cosa ricordi di quando l'hai già incontrato (tuo diario)" if n == "diario" else etichetta(n)) + f": {c['valore']}")
     for n in sc.get("personalizzati", []):
         if not campo_vuoto(sc["campi"].get(n)):
             out.append(f"{n.replace('_', ' ').capitalize()}: {sc['campi'][n]['valore']}")
@@ -693,7 +776,7 @@ def prepara(o, S, s, giro):
                 "== SCHEDE APPROVATE (fonte unica dei fatti: non le cambi) ==",
                 blocco(est, "PERSONAGGIO ESTERNO, chi interpreti"),
                 blocco(scena, "SCENA"),
-                blocco(prot, "PROTAGONISTA"),
+                blocco(prot, "PROTAGONISTA", bool(extra_attivo(S, "saga") and c.get("segue"))),
                 "\n\n".join(blocco(x, "PERSONAGGIO SECONDARIO (lo interpreti tu, parla poco)") for x in sec)
                 + ("\nSe il protagonista chiede a un secondario cosa sa del personaggio esterno: sa solo ciò che dice la scena "
                    "(«Cosa sa l'amico», se c'è)."
@@ -706,6 +789,8 @@ def prepara(o, S, s, giro):
             open(os.path.join(d, "master.md"), "w", encoding="utf-8").write(contesto)
             apertura = "\n\n".join(x for x in [
                 "PRIMA: " + prot["campi"]["prima"]["valore"], "ADESSO: " + prot["campi"]["adesso"]["valore"],
+                ("COSA TI RICORDI DI QUANDO L'HAI GIÀ INCONTRATO: " + prot["campi"]["diario"]["valore"])
+                if extra_attivo(S, "saga") and c.get("segue") and not campo_vuoto(prot["campi"].get("diario")) else "",
                 "COME ARRIVA: " + scena["campi"]["come_arriva"]["valore"],
                 "COSA RICEVE: " + (ricevuto or ""),
                 ("FRASI DA COPIARE PAROLA PER PAROLA:\n" + "\n".join(copia)) if copia else ""] if x)
@@ -735,7 +820,7 @@ def prepara(o, S, s, giro):
             if fondo and (len(meta_c) + 1) % parallelo == 0:
                 comandi.append("wait")
             meta_c.append({"nome": nome, "storia": c["storia"], "ripetizione": r if rip > 1 else None,
-                           "scheda": f"{prot['id']} v{prot['versione']}", "variante": c.get("variante"),
+                           "scheda": f"{prot['id']} v{prot['versione']}", "variante": c.get("variante"), "segue": c.get("segue"),
                            "eventi": eventi, "controlli": {k: {"valore": v, "livello": l} for k, (v, l, _) in ctrl.items()}})
     comandi += ["wait", f'python3 "$C" indice "{giro}"', ""]
     p = os.path.join(giro, "comandi.sh")
@@ -1086,7 +1171,7 @@ def main(a):
         S["consegna"] = {"link": o.get("consegna", ""), "versione": o.get("versione", "")}
         scrivi(camp_file(s), S); print(f"campagna {s}"); return 0
     if cmd in ("stato", "verifica", "imposta", "protagonista", "evento", "controllo", "controlli", "genera",
-               "applica", "prepara", "quadro", "memoria"):
+               "applica", "prepara", "quadro", "memoria", "diario"):
         s = pos[1]; S = carica_camp(s)
     if cmd == "imposta":
         k, v = pos[2], pos[3]
@@ -1107,8 +1192,13 @@ def main(a):
         camp, sid = pos[2], pos[3]
         if any(c["storia"] == camp for c in S["storie"]):
             sys.exit(f"storia già presente: {camp}")
-        S["storie"].append({"storia": camp, "scheda": sid, "variante": o.get("variante"), "controlli": {}})
-        scrivi(camp_file(s), S); print(f"storia {camp} → {sid}"); return 0
+        st = {"storia": camp, "scheda": sid, "variante": o.get("variante"), "controlli": {}}
+        if o.get("segue"):
+            if not extra_attivo(S, "saga"):
+                sys.exit(f"--segue chiede l'extra «saga»: campagne.py extra {s} saga on")
+            st["segue"] = o["segue"]
+        S["storie"].append(st)
+        scrivi(camp_file(s), S); print(f"storia {camp} → {sid}" + (f" (segue {o['segue']})" if o.get("segue") else "")); return 0
     if cmd == "evento":
         S["mazzo"] = [e for e in S["mazzo"] if e["id"] != pos[2]] + [
             {"id": pos[2], "testo": pos[3], "peso": float(o.get("peso", 1)), "dal_turno": int(o.get("dal-turno", 1))}]
@@ -1148,6 +1238,10 @@ def main(a):
         return genera(o, S, s, pos[2], o.get("campo"))
     if cmd == "applica":
         return applica(o, S, s, pos[2], pos[3])
+    if cmd == "diario":
+        if not o.get("da"):
+            sys.exit("--da GIRO/STORIA (o CAMPAGNA/GIRO/STORIA): l'episodio da cui nasce il diario")
+        return diario(o, S, s, pos[2], o["da"])
     if cmd == "prepara":
         return prepara(o, S, s, pos[2])
     if cmd == "quadro":
@@ -1210,7 +1304,7 @@ def main(a):
             sc = salva_scheda(s, sc)
             print(f"{sid}: {campo} confermato"); return 0
         if sub == "approva":
-            p = problemi_scheda(sc)
+            p = problemi_scheda(sc, extra_attivo(carica_camp(s), "saga"))
             if p:
                 print("non approvabile:\n- " + "\n- ".join(p)); return 1
             sc["stato"] = "approvata"; sc["approvata"] = ora()

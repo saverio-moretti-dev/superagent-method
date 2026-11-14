@@ -67,6 +67,20 @@ Mai attivi da soli: si accendono per argomento o per campagna, e cosa non è acc
 | `copilota` (D1) | campagna | l'autore approva o corregge le risposte del personaggio esterno |
 | `allenamento` (D2) | campagna | ruoli invertiti: il master fa il protagonista, l'autore risponde |
 
+## Saghe (A1, extra `saga`)
+Lo stesso protagonista torna mesi dopo in una storia nuova (stessa campagna o un'altra dello stesso argomento):
+```
+campagne.py extra CAMP saga on
+campagne.py protagonista CAMP ep2 p-gino --segue g1/ep1          # o --segue c1/g1/ep1 da un'altra campagna dell'argomento
+campagne.py diario CAMP p-gino --da g1/ep1                       # richiesta (non spende): il diario dalla partita
+campagne.py scheda imposta CAMP p-gino diario "…" --fonte GENERATO   # poi l'autore lo corregge e lo conferma
+campagne.py scheda imposta CAMP p-gino adesso "…"                # la sua vita è andata avanti
+```
+`verifica` blocca se: saga spenta, episodio non giocato, episodio di un'altra scheda, scheda alla stessa versione
+dell'episodio, diario vuoto o con parole della prova (test, turno, giro, esiti…). Il diario entra solo nelle storie
+con `segue`: nel contesto del master e nell'apertura del tester («cosa ti ricordi di quando l'hai già incontrato»).
+I profili non portano il diario: appartiene a una sola linea di episodi.
+
 ## Esiti veri (C3, extra `taratura`)
 Quando una persona vera risponde alla consegna, l'esito si registra nell'argomento e si confronta con le storie:
 ```
