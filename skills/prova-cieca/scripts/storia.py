@@ -410,11 +410,12 @@ def storia(o):
         if dec and not fa:
             fa = dec  # ha scritto una decisione non finale (es. «contatto»): vale come azione
         if rc == 3 or ultimo or not fa:
-            if not fa and rc != 3:
-                C["motivi"].append(f"tester turno {n}: nessun COSA FACCIO")
-            if not fa and not dec and rc == 3:
-                C["valida"] = False  # fermato dal tetto prima di scrivere: il turno non ha dati
-                C["motivi"].append(f"tester turno {n}: interrotto dal tetto di chiamate prima di rispondere (alzare --chiamate)")
+            if not fa:
+                # storia ferma senza risposta del tester: il turno non ha dati, la storia non vale (14/11, prova CASA:
+                # «nessun COSA FACCIO» lasciava valida True e la storia sembrava buona)
+                C["valida"] = False
+                C["motivi"].append(f"tester turno {n}: " + ("interrotto dal tetto di chiamate prima di rispondere (alzare --chiamate)"
+                                                            if rc == 3 else "nessun COSA FACCIO né DECISIONE: storia ferma senza risposta"))
             break
         extra, ev_ids = extra_mondo(n)
         avviso = ("L'autore ha corretto la tua ultima risposta: al tester è arrivata questa, non la tua. Da qui resta coerente "
