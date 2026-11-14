@@ -32,7 +32,7 @@ Si sceglie dal costo di sbagliare (`references/dimensionare.md`); il livello 3 s
 
 ## Campagne (livelli 2-3)
 Una campagna racconta la storia del **protagonista** (era X, è Y, arriva la situazione, va Z); la consegna è un evento della sua storia e l'autore un personaggio esterno incontrato per caso. **Schede decise prima** con l'autore (protagonista, personaggio esterno con la fonte di ogni riga, scena), un **manuale** di regole globali e di sessione, **controlli** (intensità, casualità, severità solo come tratti e mondo, campagne in parallelo, tetti), una **libreria di profili** riusabili o derivabili. Il risultato è un'**analisi** di come è andata, non un voto.
-`references/campagna.md` (arco, turni, prezzi, analisi) · `references/schede.md` (schede e profili) · `references/manuale.md` (regole e controlli)
+`references/campagna.md` (arco, turni, prezzi, analisi) · `references/schede.md` (schede e profili) · `references/manuale.md` (regole e controlli) · `references/dati.md` (file; strumento `scripts/campagne.py`: schede, controlli a tre livelli, prepara il giro, quadro, memoria)
 
 ## Procedura
 1. **Dimensiona** (`references/dimensionare.md`): livello, numero di tester (0 per verifiche deterministiche; 2 rischio medio; 3-4 rischio alto; **mai oltre 5**), tester **diversi** per ruolo e ostilità e, per rischio alto, uno con modello diverso. Otto tester uguali valgono circa due.

@@ -6,6 +6,9 @@ Uso:
               [--vietate parole.txt] [--livello 3] [--turni 6] [--chiamate 12]
               [--modello-tester sonnet] [--modello-master sonnet] [--chrome --siti host1,host2]
               [--controllo haiku]
+              [--apertura APERTURA.txt] [--copia frasi.txt] [--eventi eventi.json] [--ritardo "due giorni"]
+              [--controllo-turno haiku] [--controllo-turno-azione ferma|segna]
+  (i file --apertura/--copia/--eventi li prepara campagne.py prepara, dalle schede approvate)
   campagna.py indice DIR        rifà DIR/giro.json dalle campagne presenti
 
 Ogni turno:
@@ -16,6 +19,11 @@ Ogni turno:
 Un errore dell'API in un transcript (master o tester) rende la campagna NON VALIDA: niente rilanci automatici.
 Tetto morbido: tester fermato (sorvegliante o --max-turns) prima di rispondere → si riprende la sua sessione una
 volta con CHIUSURA (tetto 1) e risponde con ciò che ha visto; il turno porta «chiuso_dal_tetto». Senza risposta: NON VALIDA.
+Primo turno con --apertura: il master mette in scena la storia di partenza approvata senza cambiarne i fatti; ogni riga
+di --copia deve comparire identica nel messaggio, altrimenti il master lo riscrive una volta (poi NON VALIDA).
+--eventi: eventi del mondo estratti prima del giro, dati al master nel turno indicato. --ritardo: tempo fra azione e risposta.
+--controllo-turno: dopo ogni risposta del master un modello leggero la confronta col contesto; DA RIVEDERE → con
+«ferma» (default) la campagna si ferma NON VALIDA, con «segna» resta un motivo.
 Fine: il master riceve la partita intera e scrive il RESOCONTO; con --controllo un terzo agente leggero confronta
 le risposte del master col suo contesto. Uscita in DIR/<nome>/: campagna.json, resoconto.md, partita.md, transcript.
 Le sessioni salvate dalla CLI per master e tester si cancellano a fine campagna.
@@ -52,7 +60,9 @@ CHIUSURA = ("Le azioni di questo turno sono finite: niente altre ricerche né pa
 
 def args(a):
     o = {"livello": 3, "turni": 6, "chiamate": 12, "modello-tester": "sonnet", "modello-master": "sonnet",
-         "vietate": None, "chrome": False, "siti": "", "controllo": None}
+         "vietate": None, "chrome": False, "siti": "", "controllo": None,
+         "apertura": None, "copia": None, "eventi": None, "ritardo": "", "controllo-turno": None,
+         "controllo-turno-azione": "ferma"}
     i = 0
     while i < len(a):
         k = a[i].lstrip("-")
@@ -143,8 +153,8 @@ def campagna(o):
     def salva():
         json.dump(C, open(os.path.join(dove, "campagna.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
-    def master(prompt, n, nuovo=False):
-        """Turno del master con controllo di fuga e un solo tentativo di riscrittura."""
+    def master(prompt, n, nuovo=False, copia=()):
+        """Turno del master con controllo di fuga (e, al primo turno, delle frasi da copiare); una sola riscrittura."""
         for tentativo in (1, 2):
             t, c, rc = lancia(cm, sm, nuovo and tentativo == 1, prompt, os.path.join(dove, f"m{n}" + ("b" if tentativo == 2 else "")),
                               o["modello-master"], 6)
@@ -158,23 +168,82 @@ def campagna(o):
                 problema = "manca la sezione MESSAGGIO AL TESTER"
             else:
                 fuga = check_fuga.trova(msg, check_fuga.SEMPRE + vietate) + check_fuga.segnaposto(msg)
-                if not fuga:
+                mancanti = [f for f in copia if f not in msg]
+                if not fuga and not mancanti:
                     return msg, note, tentativo
-                problema = "il messaggio contiene parole che il tester non deve leggere: " + ", ".join(fuga)
+                problema = ("il messaggio contiene parole che il tester non deve leggere: " + ", ".join(fuga)) if fuga else (
+                    "mancano, identiche, queste frasi da copiare parola per parola: " + " | ".join(mancanti))
             prompt = (f"Il tuo turno non può arrivare al tester: {problema}. Riscrivilo, stesso contenuto nella scena, "
                       "con le due parti MESSAGGIO AL TESTER e NOTE PRIVATE.")
         C["valida"] = False; C["motivi"].append(f"master turno {n}: {problema}")
         return None, note, 2
 
+    copia = [l.strip() for l in open(o["copia"], encoding="utf-8") if l.strip()] if o["copia"] else []
+    eventi = json.load(open(o["eventi"], encoding="utf-8")) if o["eventi"] else []
+    C["eventi_previsti"] = eventi
+    if o["apertura"]:
+        C["apertura"] = open(o["apertura"], encoding="utf-8").read()
+    controlli_turno = []
+
+    def controllo_turno(n, msg):
+        """C4: risposta del master confrontata subito col contesto. Ritorna True se la campagna può continuare."""
+        if not o["controllo-turno"]:
+            return True
+        cc = os.path.join(lavoro, f"ct{n}")
+        r, c, rc_c = lancia(cc, str(uuid.uuid4()), True, (
+            "Controlla UN messaggio del master di una simulazione contro il suo CONTESTO. Rispondi solo con:\n"
+            "FUORI SCHEDA: <promesse, prezzi, condizioni, fatti o persone che il contesto non dà, o «nessuno»>\n"
+            "TONO: PIÙ MORBIDO | FEDELE | PIÙ DURO del contesto, una riga\nVERDETTO: FEDELE | DA RIVEDERE\n\n"
+            "== CONTESTO ==\n" + contesto + "\n\n== MESSAGGIO DEL MASTER ==\n" + msg),
+            os.path.join(dove, f"controllo-m{n}"), o["controllo-turno"], 1)
+        C["costo_usd"] += c
+        pulisci_sessioni([cc])
+        da_rivedere = bool(re.search(r"VERDETTO\W*DA RIVEDERE", r, re.I))
+        controlli_turno.append({"turno_master": n, "verdetto": "DA RIVEDERE" if da_rivedere else ("ERRORE" if rc_c == 4 else "FEDELE"),
+                                "testo": r.strip()[:600]})
+        C["controlli_turno"] = controlli_turno
+        if da_rivedere:
+            C["motivi"].append(f"controllo del master, turno {n}: DA RIVEDERE")
+            if o["controllo-turno-azione"] == "ferma":
+                C["valida"] = False
+                return False
+        return True
+
+    def extra_mondo(n):
+        """Eventi previsti per il turno n del tester (B2) e tempo che passa (B3), da dare al master."""
+        ev = [e for e in eventi if e.get("turno") == n]
+        t = ""
+        if ev:
+            t += ("\nEvento del mondo da mettere in scena in questa risposta (deciso prima, non cambiarlo, non aggiungerne): "
+                  + " | ".join(e["testo"] for e in ev) + ".")
+        if o["ritardo"]:
+            t += f"\nFra l'azione del tester e la risposta dell'autore passano: {o['ritardo']}. Mettilo in scena."
+        return t, [e["id"] for e in ev]
+
     salva()
-    primo = (contesto + f"\n\n== TESTER DI QUESTA CAMPAGNA ==\n{o['tester']}\n\nLivello {o['livello']}, al massimo "
-             f"{o['turni']} turni del tester.\nOra il PRIMO TURNO: la storia di partenza del tester, nel formato "
-             "MESSAGGIO AL TESTER / NOTE PRIVATE. La storia riguarda solo lui (regole di storia-tester).\n"
+    if o["apertura"]:
+        primo = (contesto + f"\n\n== TESTER DI QUESTA CAMPAGNA ==\n{o['tester']}\n\nLivello {o['livello']}, al massimo "
+                 f"{o['turni']} turni del tester.\n\n== STORIA DI PARTENZA APPROVATA ==\n{C['apertura']}\n\n"
+                 "Ora il PRIMO TURNO, nel formato MESSAGGIO AL TESTER / NOTE PRIVATE: metti in scena questa storia per il tester, "
+                 "in seconda persona. Non cambiare, non aggiungere e non togliere fatti: puoi solo raccontare l'arrivo della "
+                 "consegna. Le FRASI DA COPIARE vanno nel messaggio identiche, parola per parola. La storia riguarda solo lui: "
+                 "chi propone la consegna occupa al massimo una riga (il canale).\n"
+                 "Sempre, in tutta la campagna: le terze persone parlano poco e solo per far andare avanti la scena; se il "
+                 "tester vuole contattare l'autore, il contatto arriva subito. Non inventare dati che le schede non danno "
+                 "(numeri di telefono, indirizzi, prezzi, condizioni): scrivili in forma generica o segnali come BUCO. "
+                 "Mai segnaposto tra parentesi quadre.")
+    else:
+        primo = (contesto + f"\n\n== TESTER DI QUESTA CAMPAGNA ==\n{o['tester']}\n\nLivello {o['livello']}, al massimo "
+             f"{o['turni']} turni del tester.\nOra il PRIMO TURNO, nel formato MESSAGGIO AL TESTER / NOTE "
+             "PRIVATE: la storia di partenza presa dalla scheda del protagonista e dalla scena nel tuo contesto, senza "
+             "cambiarne i fatti (regole di storia-tester). La storia riguarda solo lui.\n"
              "Sempre, in tutta la campagna: le terze persone (amici, fornitori) parlano poco e solo per far andare avanti "
              "la scena; se il tester vuole contattare l'autore, il contatto arriva subito. Non inventare dati che il "
              "contesto non dà (numeri di telefono, indirizzi, prezzi, condizioni): scrivili in forma generica (\"il "
              "numero che ti ha girato\") o segnali come BUCO. Mai segnaposto tra parentesi quadre.")
-    msg, note, tent = master(primo, 0, nuovo=True)
+    msg, note, tent = master(primo, 0, nuovo=True, copia=copia)
+    if msg is not None and not controllo_turno(0, msg):
+        msg = None
     C["storia"] = msg; C["note_storia"] = note
     n, primo_t = 1, True
     while msg is not None and n <= o["turni"]:
@@ -232,8 +301,14 @@ def campagna(o):
                 C["valida"] = False  # fermato dal tetto prima di scrivere: il turno non ha dati
                 C["motivi"].append(f"tester turno {n}: interrotto dal tetto di chiamate prima di rispondere (alzare --chiamate)")
             break
+        extra, ev_ids = extra_mondo(n)
         msg, note, tent = master(f"Turno {n} del tester. Il tester fa:\n\n{fa}\n\nRispondi come l'autore o il mondo, "
-                                 "formato MESSAGGIO AL TESTER / NOTE PRIVATE.", n)
+                                 "formato MESSAGGIO AL TESTER / NOTE PRIVATE." + extra, n)
+        if ev_ids:
+            C["turni"][-1]["eventi_dopo"] = ev_ids
+        if msg is not None and not controllo_turno(n, msg):
+            C["turni"][-1]["master_dopo_scartato"] = msg
+            msg = None
         n += 1
 
     C["ricerche"] = sum(t.get("ricerche", 0) for t in C["turni"])
@@ -287,7 +362,7 @@ def campagna(o):
     C["costo_usd"] = round(C["costo_usd"], 4)
     C["fine"] = time.strftime("%Y-%m-%d %H:%M"); C["stato"] = "finita"
     salva()
-    pulisci_sessioni([cm, ct, os.path.join(lavoro, "c")])
+    pulisci_sessioni([cm, ct, os.path.join(lavoro, "c")] + [os.path.join(lavoro, f"ct{i}") for i in range(o["turni"] + 1)])
     shutil.rmtree(lavoro, ignore_errors=True)
     indice(giro)
     print(f"{o['nome']}: esito {C['esito']} · valida {C['valida']} · turni {len(C['turni'])} · ${C['costo_usd']}"

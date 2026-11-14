@@ -72,9 +72,11 @@ La scrive il coordinatore (o l'agente del progetto) da partita, note private e r
 
 Più campagne della stessa sessione non si mediano: si confrontano le storie (perché uno ha contattato e l'altro no).
 
+## Strumenti
+`scripts/campagne.py` gestisce sessioni, schede, profili, controlli e prepara i giri; con `--apertura` il master di
+`campagna.py` mette in scena la storia approvata senza cambiarne i fatti e le frasi da copiare sono controllate. Formato: `dati.md`.
+
 ## Più avanti (non ora)
-`scripts/campagna.py` va ancora allineato: oggi il suo prompt del primo turno chiede al master di scrivere la storia;
-finché non è aggiornato, il contesto del master deve contenere le schede e la regola «non cambi i fatti delle schede».
 
 Campagne interattive: dopo ogni turno l'autore stesso risponde al posto del master, da una pagina dedicata.
 
