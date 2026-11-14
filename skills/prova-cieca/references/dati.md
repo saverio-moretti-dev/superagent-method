@@ -9,7 +9,8 @@ inoltra a `storia.py`, accanto a `storia.json` c'è il collegamento `campagna.js
 ## Dove stanno
 ```
 <argomento>/                         una cartella per argomento (repo locale: `argomento nuovo` fa git init, niente remoto)
-  argomento.json · LEGGIMI.md        id, titolo, creato
+  argomento.json · LEGGIMI.md        id, titolo, creato, extra dell'argomento (`taratura`)
+  esiti-veri.json                    C3 (solo se `taratura` è acceso): esiti di persone vere, anonimi, MAI fuori da questa repo
   memoria.json                       C2: domande in attesa, motivi, esiti per profilo, obiezioni, profili consumati (tutte le campagne)
   analisi-prompt.md · analisi.md     `analisi`: tutte le campagne a confronto, ognuna nel suo contesto
  campagne/<campagna>/
@@ -51,9 +52,38 @@ inoltra a `storia.py`, accanto a `storia.json` c'è il collegamento `campagna.js
  "mazzo": [{"id": "commissioni", "testo": "…", "peso": 2, "dal_turno": 1}], "seme": 1,
  "confronto": {"tipo": "versioni", "consegne": [{"versione": "v1", "link": "…"}, {"versione": "v2", "link": "…"}]},
  "giri": [{"giro": "g1", "preparato": "…"}],
- "riservato": {"saga": null, "bivi": null, "taratura": null, "copilota": null}}
+ "extra": {"saga": false, "bivi": false, "copilota": false, "allenamento": false}}
 ```
-`riservato`: posti per funzioni non ancora decise (saghe, bivi, taratura col mondo reale, copilota). Restano `null`.
+`extra`: funzioni selezionabili della campagna, spente finché non si accendono (`campagne.py extra CAMP NOME on`).
+Le campagne vecchie con `riservato` si leggono come tutte spente.
+
+## Extra selezionabili
+Mai attivi da soli: si accendono per argomento o per campagna, e cosa non è acceso non cambia niente nei giri.
+| extra | livello | cosa fa |
+|---|---|---|
+| `taratura` (C3) | argomento | esiti di persone vere accanto a quelli delle storie (sotto) |
+| `saga` (A1) | campagna | lo stesso protagonista torna in una storia nuova con il suo diario |
+| `bivi` (A3) | campagna | si rigioca una storia da un turno N con un'altra risposta del personaggio esterno |
+| `copilota` (D1) | campagna | l'autore approva o corregge le risposte del personaggio esterno |
+| `allenamento` (D2) | campagna | ruoli invertiti: il master fa il protagonista, l'autore risponde |
+
+## Esiti veri (C3, extra `taratura`)
+Quando una persona vera risponde alla consegna, l'esito si registra nell'argomento e si confronta con le storie:
+```
+campagne.py esito-vero ARG --esito LASCIA --chi "titolare di forno, 60 anni, poco digitale" --come titolare-diffidente \
+  --canale passaparola --quando 2026-11 --motivo "prezzo troppo alto per lui"
+```
+```json
+{"esiti": [{"n": 1, "quando": "2026-11", "chi": "titolare di forno, 60 anni, poco digitale", "come": "titolare-diffidente",
+  "canale": "passaparola", "esito": "LASCIA", "motivo": "prezzo troppo alto per lui", "versione": "", "campagna": "",
+  "registrato": "…"}]}
+```
+- **Anonimo**: `chi` è un tipo di persona, mai un nome; `quando` solo il mese. Il comando rifiuta email, indirizzi web,
+  profili social, numeri lunghi e possibili nomi e cognomi (`--controllato` solo per un falso allarme verificato).
+- **Solo locale**: rifiuta un argomento dentro la skill e una repo dell'argomento con un remoto (`--anche-remoto` solo
+  se l'autore ha scelto di pubblicarla). Nella skill e negli esempi restano solo comando e formato, con dati inventati.
+- `--come` collega l'esito a una scheda o a un profilo: `esiti-veri ARG` e `analisi ARG` mettono gli esiti veri
+  accanto a quelli delle storie valide dello stesso profilo (sezione TARATURA). Gli esiti veri valgono più delle storie.
 
 ## Controlli: tre livelli
 globale (`manuale.json`) → campagna → storia. Il livello più basso vince, **salvo** un valore `bloccato` più in alto.

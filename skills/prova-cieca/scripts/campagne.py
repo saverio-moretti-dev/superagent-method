@@ -12,6 +12,13 @@ Argomento
   campagne.py argomento nuovo DIR [--titolo "…"]   cartella dell'argomento: argomento.json, memoria.json, campagne/ (git locale)
   campagne.py argomento stato DIR                   campagne, giri, storie, domande in attesa
   campagne.py analisi DIR                           tutte le campagne dell'argomento: tabella + prompt per l'analisi
+Extra selezionabili (mai attivi da soli: si accendono per argomento o per campagna; references/dati.md § Extra)
+  campagne.py extra DIR                             elenco degli extra e stato (DIR = argomento o campagna)
+  campagne.py extra DIR NOME on|off                 taratura (argomento) · saga, bivi, copilota, allenamento (campagna)
+  campagne.py esito-vero DIR --esito COMPRA|LASCIA|INCOMPLETA --chi "tipo di persona" [--come SCHEDA|PROFILO]
+                         [--canale …] [--quando AAAA-MM] [--motivo "…"] [--versione v2] [--campagna C] [--anche-remoto]
+                                                    C3: esito di una persona VERA, anonimo, solo nella repo locale dell'argomento
+  campagne.py esiti-veri DIR                        esiti veri registrati e confronto con quelli delle storie
 Campagna (CAMP = DIR/campagne/<nome>; fuori da un argomento la memoria sta accanto alla campagna)
   campagne.py nuova CAMP --domanda "…" [--consegna URL] [--versione v1]
   campagne.py stato CAMP                      riassunto: schede, stati, cosa blocca
@@ -90,7 +97,22 @@ STRUTTURE = {
         ("come_parla", False, "tono, poche parole"),
     ],
 }
-RISERVATI = {"diario"}  # campi previsti, non usati finché la funzione non è scelta per la campagna (saghe, A1)
+RISERVATI = {"diario"}  # campi usati solo se la campagna sceglie l'extra «saga» (A1)
+
+# Extra selezionabili (utente 14/11 01:38: «roba extra che si può selezionare e aggiungere ai test», mai sempre attivi).
+# livello: dove si accende. costruito: False = previsto, non ancora accendibile.
+EXTRA = {
+    "taratura": ("argomento", True, "C3: esiti di persone vere (anonimi) accanto a quelli delle storie"),
+    "saga": ("campagna", False, "A1: lo stesso protagonista torna in una storia nuova con il suo diario"),
+    "bivi": ("campagna", False, "A3: si rigioca una storia da un turno con un'altra risposta del personaggio esterno"),
+    "copilota": ("campagna", False, "D1: l'autore approva o corregge le risposte del personaggio esterno"),
+    "allenamento": ("campagna", False, "D2: ruoli invertiti, il master fa il protagonista e l'autore risponde"),
+}
+ESITI = ("COMPRA", "LASCIA", "INCOMPLETA")
+# Anonimato degli esiti veri: niente contatti, indirizzi web, profili social, numeri lunghi
+NON_ANONIMO = [(r"[\w.+-]+@[\w-]+\.[\w.]+", "indirizzo email"), (r"https?://|www\.", "indirizzo web"),
+               (r"(?<!\w)@\w{2,}", "profilo social"), (r"\+?\d[\d .-]{6,}\d", "numero di telefono o codice"),
+               (r"(?<![.!?]\s)(?<!^)\b[A-ZÀ-Ý][a-zà-ÿ]+\s+[A-ZÀ-Ý][a-zà-ÿ]+\b", "possibile nome e cognome")]
 
 # Controlli globali di default (references/manuale.md). agisce: programma | master | schede
 CONTROLLI = {
@@ -146,7 +168,14 @@ def carica_camp(s):
     d = leggi(camp_file(s))
     if d is None:
         sys.exit(f"campagna non trovata: {s}")
+    if "extra" not in d:  # campagne create prima degli extra (14/11): «riservato» → «extra», tutto spento
+        d.pop("riservato", None)
+        d["extra"] = {k: False for k, v in EXTRA.items() if v[0] == "campagna"}
     return d
+
+
+def extra_attivo(S, nome):
+    return bool((S or {}).get("extra", {}).get(nome))
 
 
 # ---------- argomento ----------
@@ -175,7 +204,8 @@ def argomento_nuovo(d, titolo):
     if os.path.exists(os.path.join(d, "argomento.json")):
         sys.exit(f"argomento già esistente: {d}")
     os.makedirs(os.path.join(d, "campagne"), exist_ok=True)
-    scrivi(os.path.join(d, "argomento.json"), {"id": os.path.basename(d), "titolo": titolo or os.path.basename(d), "creato": ora()})
+    scrivi(os.path.join(d, "argomento.json"), {"id": os.path.basename(d), "titolo": titolo or os.path.basename(d), "creato": ora(),
+                                               "extra": {k: False for k, v in EXTRA.items() if v[0] == "argomento"}})
     if not os.path.exists(os.path.join(d, "memoria.json")):
         scrivi(os.path.join(d, "memoria.json"), MEMORIA_VUOTA)
     leggimi = os.path.join(d, "LEGGIMI.md")
@@ -244,20 +274,161 @@ def analisi(arg):
     if not n:
         print("nessuna storia giocata nell'argomento"); return 1
     tabella = "\n".join(righe_t)
+    tar = taratura(arg)
     prompt = (f"Argomento di test: {A['titolo']}. Sotto ci sono tutte le campagne fatte su questo argomento: per ognuna la "
               "domanda, la versione della consegna, le schede usate, l'esito di ogni storia e il quadro del giro. Le campagne "
               "differiscono per schede, storia o consegna: leggi ogni risultato nel suo contesto, non mediare fra campagne "
               "diverse. Scrivi in italiano, con queste sezioni:\n1) COSA È CAMBIATO FRA LE CAMPAGNE e cosa ha cambiato negli esiti\n"
               "2) OBIEZIONI CHE TORNANO IN PIÙ CAMPAGNE\n3) ESITI PER TIPO DI PERSONA, su tutte le campagne\n"
               "4) BUCHI ANCORA APERTI (domande per l'autore)\n5) PROFILI CONSUMATI (rigiocarli non insegna niente)\n"
-              "6) STORIE NON VALIDE e perché (non contano)\n7) PROSSIMA CAMPAGNA: cosa cambiare\n\n"
-              + tabella + "\n\n" + "\n\n".join(contesti)
+              "6) STORIE NON VALIDE e perché (non contano)\n7) PROSSIMA CAMPAGNA: cosa cambiare\n"
+              + ("8) TARATURA: dove gli esiti delle storie somigliano a quelli delle persone vere e dove no; quali "
+                 "profili, controlli o severità cambiare. Gli esiti veri valgono più delle storie.\n" if tar else "")
+              + "\n" + tabella + "\n\n" + "\n\n".join(contesti)
+              + ("\n\n## Esiti di persone vere (anonimi) e confronto\n" + "\n".join(tar) if tar else "")
               + "\n\n## Memoria dell'argomento\n" + json.dumps({k: M.get(k) for k in ("domande_in_attesa", "esiti_profili",
                                                                                      "profili_consumati", "motivi")}, ensure_ascii=False, indent=1))
     open(os.path.join(arg, "analisi-prompt.md"), "w", encoding="utf-8").write(prompt)
     open(os.path.join(arg, "analisi-tabella.md"), "w", encoding="utf-8").write(tabella + "\n")
     print(tabella + f"\n\nprompt per l'analisi dell'argomento: {os.path.join(arg, 'analisi-prompt.md')} "
           "(lo esegue chi coordina; la risposta va in analisi.md)")
+    return 0
+
+
+# ---------- extra ----------
+def extra_cmd(d, nome=None, stato=None):
+    d = os.path.abspath(d)
+    if os.path.isfile(os.path.join(d, "argomento.json")):
+        liv, f = "argomento", os.path.join(d, "argomento.json")
+        X = leggi(f)
+        X.setdefault("extra", {k: False for k, v in EXTRA.items() if v[0] == "argomento"})
+    elif os.path.isfile(camp_file(d)):
+        liv, f = "campagna", camp_file(d)
+        X = carica_camp(d)
+    else:
+        sys.exit(f"né argomento né campagna: {d}")
+    if nome is None:
+        for k, (l, costruito, testo) in EXTRA.items():
+            if l == liv:
+                print(f"{k:12} {'ACCESO' if X['extra'].get(k) else 'spento':7} {testo}" + ("" if costruito else "  (non ancora costruito)"))
+        altri = [k for k, v in EXTRA.items() if v[0] != liv]
+        print(f"(a livello {'campagna' if liv == 'argomento' else 'argomento'}: {', '.join(altri)})")
+        return 0
+    if nome not in EXTRA:
+        sys.exit(f"extra sconosciuto: {nome} (noti: {', '.join(EXTRA)})")
+    if EXTRA[nome][0] != liv:
+        sys.exit(f"«{nome}» si accende per {EXTRA[nome][0]}, non per {liv}")
+    if stato not in ("on", "off"):
+        sys.exit("stato: on | off")
+    if stato == "on" and not EXTRA[nome][1]:
+        sys.exit(f"«{nome}» è previsto ma non ancora costruito")
+    X["extra"][nome] = stato == "on"
+    scrivi(f, X)
+    print(f"{nome} {'acceso' if stato == 'on' else 'spento'} per {liv} {X['id']}")
+    return 0
+
+
+def esiti_file(arg):
+    return os.path.join(arg, "esiti-veri.json")
+
+
+def controlla_luogo_esiti(arg, anche_remoto):
+    """Gli esiti veri stanno solo nella repo locale dell'argomento: mai dentro la skill, mai in una repo con remoto senza scelta."""
+    skill = os.path.dirname(BASE)
+    if os.path.commonpath([os.path.realpath(arg), os.path.realpath(skill)]) == os.path.realpath(skill):
+        sys.exit("l'argomento è dentro la skill: gli esiti veri non si salvano qui (la skill può essere pubblica)")
+    import subprocess
+    r = subprocess.run(["git", "-C", arg, "remote", "-v"], capture_output=True, text=True) if shutil.which("git") else None
+    if r and r.returncode == 0 and r.stdout.strip() and not anche_remoto:
+        sys.exit("la repo dell'argomento ha un remoto: gli esiti veri restano locali. Se l'autore ha scelto altrimenti: --anche-remoto")
+
+
+def anonimo(testi):
+    p = []
+    for campo, v in testi.items():
+        for rx, cosa in NON_ANONIMO:
+            m = re.search(rx, v or "")
+            if m:
+                p.append(f"{campo}: {cosa} («{m.group(0)}»)")
+    return p
+
+
+def esito_vero(arg, o):
+    arg = os.path.abspath(arg)
+    A = leggi(os.path.join(arg, "argomento.json"))
+    if A is None:
+        sys.exit(f"argomento non trovato: {arg} (gli esiti veri stanno solo in un argomento)")
+    if not (A.get("extra") or {}).get("taratura"):
+        sys.exit(f"extra «taratura» spento: campagne.py extra {arg} taratura on")
+    controlla_luogo_esiti(arg, o.get("anche-remoto"))
+    esito = (o.get("esito") or "").upper()
+    if esito not in ESITI:
+        sys.exit(f"--esito: {' | '.join(ESITI)}")
+    if not o.get("chi"):
+        sys.exit("--chi: il tipo di persona (es. «titolare di forno, 60 anni, poco digitale»), mai il nome")
+    quando = o.get("quando") or time.strftime("%Y-%m")
+    if not re.fullmatch(r"\d{4}-\d{2}", quando):
+        sys.exit("--quando: AAAA-MM (solo il mese: il giorno aiuta a riconoscere la persona)")
+    testi = {k: o.get(k, "") for k in ("chi", "canale", "motivo", "come")}
+    p = anonimo(testi)
+    if p and not o.get("controllato"):
+        sys.exit("non anonimo, non salvato:\n- " + "\n- ".join(p) + "\n(se è un falso allarme, riscrivi o aggiungi --controllato)")
+    E = leggi(esiti_file(arg), {"esiti": []})
+    n = max([e["n"] for e in E["esiti"]] or [0]) + 1
+    E["esiti"].append({"n": n, "quando": quando, "chi": o["chi"], "come": o.get("come", ""), "canale": o.get("canale", ""),
+                       "esito": esito, "motivo": o.get("motivo", ""), "versione": o.get("versione", ""),
+                       "campagna": o.get("campagna", ""), "registrato": ora()})
+    scrivi(esiti_file(arg), E)
+    print(f"esito vero n. {n} salvato in {esiti_file(arg)} (solo locale)" + (" — usa --come per confrontarlo con le storie" if not o.get("come") else ""))
+    return 0
+
+
+def esiti_simulati(arg):
+    """Esiti delle storie valide per scheda e per profilo d'origine, da memoria.json e dalle schede delle campagne."""
+    M = leggi(os.path.join(arg, "memoria.json"), MEMORIA_VUOTA)
+    sim = {}
+    for sid, es in M.get("esiti_profili", {}).items():
+        sim.setdefault(sid, []).extend(e["esito"] for e in es)
+    for d, _S in campagne_di(arg):
+        for sid in os.listdir(os.path.join(d, "schede")) if os.path.isdir(os.path.join(d, "schede")) else []:
+            vs = versioni(d, sid)
+            prof = (carica_scheda(d, sid).get("origine") or {}).get("profilo") if vs else None
+            if prof and prof != sid:
+                sim.setdefault(prof, []).extend(sim.get(sid, []) if sid in M.get("esiti_profili", {}) else [])
+    return sim
+
+
+def taratura(arg):
+    """Righe di confronto vero ↔ storie per l'analisi; [] se l'extra è spento o non ci sono esiti."""
+    A = leggi(os.path.join(arg, "argomento.json"), {})
+    E = leggi(esiti_file(arg), {"esiti": []})
+    if not (A.get("extra") or {}).get("taratura") or not E["esiti"]:
+        return []
+    sim = esiti_simulati(arg)
+    out = ["| come | esiti veri | esiti delle storie | accordo |", "|---|---|---|---|"]
+    gruppi = {}
+    for e in E["esiti"]:
+        gruppi.setdefault(e["come"] or "(non collegato)", []).append(e["esito"])
+    for come, veri in gruppi.items():
+        s = sim.get(come, [])
+        acc = ""
+        if s and come != "(non collegato)":
+            dom = max(set(s), key=s.count)
+            acc = f"{sum(1 for v in veri if v == dom)}/{len(veri)} come l'esito prevalente delle storie ({dom})"
+        out.append(f"| {come} | {', '.join(veri)} | {', '.join(s) or '—'} | {acc or '—'} |")
+    return out
+
+
+def esiti_veri_cmd(arg):
+    arg = os.path.abspath(arg)
+    E = leggi(esiti_file(arg), {"esiti": []})
+    if not E["esiti"]:
+        print("nessun esito vero registrato"); return 0
+    for e in E["esiti"]:
+        print(f"{e['n']:3} {e['quando']} {e['esito']:10} {e['chi']}" + (f" · come {e['come']}" if e["come"] else "")
+              + (f" · {e['motivo']}" if e["motivo"] else ""))
+    t = taratura(arg)
+    print("\n" + ("\n".join(t) if t else "(extra «taratura» spento: nessun confronto)"))
     return 0
 
 
@@ -866,15 +1037,15 @@ def nuova_camp(sid, domanda):
     return {"id": sid, "creata": ora(), "stato": "bozza", "domanda": domanda, "consegna": {"link": "", "versione": ""},
             "esterno": None, "scena": None, "secondari": [], "storie": [], "regole": [], "fuori_storia": [],
             "si_puo_dire": [], "controlli": {}, "mazzo": [], "seme": 1, "giri": [], "confronto": None,
-            # previsti, non costruiti: si attivano dopo la decisione dell'autore
-            "riservato": {"saga": None, "bivi": None, "taratura": None, "copilota": None}}
+            # extra selezionabili, spenti finché la campagna non li sceglie (campagne.py extra)
+            "extra": {k: False for k, v in EXTRA.items() if v[0] == "campagna"}}
 
 
 # ---------- CLI ----------
 def opzioni(a):
     pos, o = [], {}
     i = 0
-    flag = {"blocca", "sblocca", "personalizzato"}
+    flag = {"blocca", "sblocca", "personalizzato", "anche-remoto", "controllato"}
     while i < len(a):
         if a[i].startswith("--"):
             k = a[i][2:]
@@ -899,6 +1070,12 @@ def main(a):
             return argomento_stato(pos[2])
     if cmd == "analisi":
         return analisi(pos[1])
+    if cmd == "extra":
+        return extra_cmd(pos[1], pos[2] if len(pos) > 2 else None, pos[3] if len(pos) > 3 else None)
+    if cmd == "esito-vero":
+        return esito_vero(pos[1], o)
+    if cmd == "esiti-veri":
+        return esiti_veri_cmd(pos[1])
     if cmd == "nuova":
         s = pos[1]
         if os.path.exists(camp_file(s)):
@@ -913,7 +1090,7 @@ def main(a):
         s = pos[1]; S = carica_camp(s)
     if cmd == "imposta":
         k, v = pos[2], pos[3]
-        if k in ("riservato", "id", "giri"):
+        if k in ("riservato", "extra", "id", "giri"):
             sys.exit(f"«{k}» non si imposta a mano")
         if k.startswith("consegna."):
             S["consegna"][k.split(".", 1)[1]] = v
