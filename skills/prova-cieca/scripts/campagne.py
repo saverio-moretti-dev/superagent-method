@@ -28,6 +28,8 @@ Campagna (CAMP = DIR/campagne/<nome>; fuori da un argomento la memoria sta accan
                                               aggiunge una storia (un protagonista); --segue: episodio successivo (extra saga)
   campagne.py bivio CAMP GIRO STORIA --dal-turno N --risposta "testo"|@file [--nome S]
                                               A3: rigioca STORIA dal turno N con un'altra risposta (extra bivi)
+  campagne.py copilota GIRO [STORIA [--approva | --correggi "testo"|@file]]
+                                              D1: risposte del master in attesa dell'autore (extra copilota)
   campagne.py diario CAMP SCHEDA --da [CAMPAGNA/]GIRO/STORIA   A1: richiesta del diario nel personaggio dall'episodio
   campagne.py evento CAMP ID "testo" [--peso 1] [--dal-turno 1]  mazzo di eventi del mondo
 Schede
@@ -109,7 +111,7 @@ EXTRA = {
     "taratura": ("argomento", True, "C3: esiti di persone vere (anonimi) accanto a quelli delle storie"),
     "saga": ("campagna", True, "A1: lo stesso protagonista torna in una storia nuova con il suo diario"),
     "bivi": ("campagna", True, "A3: si rigioca una storia da un turno con un'altra risposta del personaggio esterno"),
-    "copilota": ("campagna", False, "D1: l'autore approva o corregge le risposte del personaggio esterno"),
+    "copilota": ("campagna", True, "D1: l'autore approva o corregge le risposte del personaggio esterno"),
     "allenamento": ("campagna", False, "D2: ruoli invertiti, il master fa il protagonista e l'autore risponde"),
 }
 ESITI = ("COMPRA", "LASCIA", "INCOMPLETA")
@@ -714,6 +716,52 @@ def bivio(o, S, s, giro, nome, n, risposta):
     return 0
 
 
+def copilota_cmd(giro, nome=None, approva=False, correggi=None):
+    """D1: elenca le risposte in attesa dell'autore, o ne approva/corregge una (la storia in corso la legge e riparte).
+    Non spende: scrive solo il file copilota/turno-N.json della storia."""
+    import glob
+    giro = os.path.abspath(giro)
+    files = sorted(glob.glob(os.path.join(giro, nome or "*", "copilota", "turno-*.json")),
+                   key=lambda f: (os.path.dirname(f), int(re.search(r"turno-(\d+)", f).group(1))))
+    attesa = [f for f in files if (leggi(f) or {}).get("stato") == "in attesa"]
+    if not approva and correggi is None:
+        if not attesa:
+            print("nessuna risposta in attesa" + (f" in {nome}" if nome else ""))
+        for f in attesa:
+            d = leggi(f)
+            print(f"== {d['storia']} · turno {d['turno']} · dal {d.get('scritta', '?')}"
+                  + (f"\n   CORREZIONE RIFIUTATA: {d['rifiutata']}" if d.get("rifiutata") else ""))
+            print(f"IL PROTAGONISTA HA FATTO:\n{d.get('tester_ha_fatto', '')}\n\nRISPOSTA PROPOSTA:\n{d['proposta']}\n")
+        return 0
+    if not nome:
+        sys.exit("approva o correggi una storia: campagne.py copilota GIRO STORIA --approva | --correggi \"…\"")
+    if not attesa:
+        sys.exit(f"nessuna risposta in attesa in {nome}")
+    f = attesa[0]
+    d = leggi(f)
+    if correggi is not None:
+        testo = correggi.strip()
+        if not testo:
+            sys.exit("correzione vuota")
+        sys.path.insert(0, BASE)
+        import check_fuga
+        pv = os.path.join(giro, "_prep", nome, "vietate.txt")
+        vietate = check_fuga.carica(pv) if os.path.exists(pv) else []
+        fuga = check_fuga.trova(testo, check_fuga.SEMPRE + vietate) + check_fuga.segnaposto(testo)
+        if fuga:
+            sys.exit("la correzione contiene parole che il tester non deve leggere: " + ", ".join(fuga))
+        d.update(stato="corretta", testo=testo)
+    else:
+        d["stato"] = "approvata"
+    d.pop("rifiutata", None)
+    d["deciso"] = ora()
+    tmp = f + ".tmp"
+    json.dump(d, open(tmp, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    os.replace(tmp, f)
+    print(f"{nome} turno {d['turno']}: {d['stato']} (la storia riparte da sola)")
+    return 0
+
+
 def variante_testo(scena, variante):
     txt = scena["campi"]["cosa_riceve"]["valore"]
     if not variante:
@@ -852,7 +900,9 @@ def prepara(o, S, s, giro):
             if valore(ctrl, "browser"):
                 siti = ",".join(sorted({re.sub(r"^https?://([^/]+).*", r"\1", x) for x in copia if re.match(r"https?://", x)}))
                 cmd.append("--chrome" + (f" --siti {siti}" if siti else ""))
-            parallelo = int(valore(ctrl, "parallelo"))
+            if extra_attivo(S, "copilota"):
+                cmd.append("--copilota")  # l'autore approva o corregge ogni risposta: una storia alla volta
+            parallelo = 1 if extra_attivo(S, "copilota") else int(valore(ctrl, "parallelo"))
             fondo = not valore(ctrl, "browser") and parallelo > 1
             comandi.append(" \\\n  ".join(cmd) + (" &" if fondo else ""))
             if fondo and (len(meta_c) + 1) % parallelo == 0:
@@ -1168,7 +1218,7 @@ def nuova_camp(sid, domanda):
 def opzioni(a):
     pos, o = [], {}
     i = 0
-    flag = {"blocca", "sblocca", "personalizzato", "anche-remoto", "controllato"}
+    flag = {"blocca", "sblocca", "personalizzato", "anche-remoto", "controllato", "approva"}
     while i < len(a):
         if a[i].startswith("--"):
             k = a[i][2:]
@@ -1281,6 +1331,11 @@ def main(a):
             sys.exit("--dal-turno N --risposta \"testo\" (o @file)")
         return bivio(o, S, s, pos[2], pos[3], int(o["dal-turno"]),
                      open(o["risposta"][1:], encoding="utf-8").read() if o["risposta"].startswith("@") else o["risposta"])
+    if cmd == "copilota":
+        corr = o.get("correggi")
+        if corr is not None and corr.startswith("@"):
+            corr = open(corr[1:], encoding="utf-8").read()
+        return copilota_cmd(pos[1], pos[2] if len(pos) > 2 else None, bool(o.get("approva")), corr)
     if cmd == "diario":
         if not o.get("da"):
             sys.exit("--da GIRO/STORIA (o CAMPAGNA/GIRO/STORIA): l'episodio da cui nasce il diario")

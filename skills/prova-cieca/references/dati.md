@@ -94,6 +94,25 @@ tester e master partono in sessioni nuove con quei turni come ricordo; la rispos
 controllo del turno: cambiare le condizioni è lo scopo). `storia.json` ha `"bivio": {da, origine, dal_turno, risposta,
 esito_origine}`. I bivi non entrano negli esiti per profilo della memoria (non sono storie previste dal giro).
 
+## Copilota (D1, extra `copilota`)
+Le risposte del personaggio esterno diventano dell'autore: ogni risposta del master (non la storia di partenza) aspetta
+che l'autore la approvi o la corregga prima di arrivare al tester.
+```
+campagne.py extra CAMP copilota on
+campagne.py prepara CAMP GIRO          # aggiunge --copilota a ogni storia e le gioca una alla volta
+campagne.py copilota GIRO              # risposte in attesa: cosa ha fatto il protagonista + risposta proposta
+campagne.py copilota GIRO ep1 --approva
+campagne.py copilota GIRO ep1 --correggi "Le posso proporre tre rate."   # o --correggi @file.txt
+```
+La storia in corso scrive `GIRO/<storia>/copilota/turno-N.json` (`stato: "in attesa"`, `proposta`, `tester_ha_fatto`,
+`note_master`), mette `storia.json` in `"stato": "aspetta l'autore"` e controlla il file ogni pochi secondi.
+L'autore scrive `"approvata"` o `"corretta"` con `testo` (a mano, con `campagne.py copilota` o dalla Regia).
+La correzione passa da check_fuga (anche dentro la storia: se fuga, il file torna «in attesa» con `rifiutata`); al
+turno dopo il master riceve la risposta corretta come fatto delle schede. Attesa massima `--copilota-attesa` minuti
+(default 120); poi `--copilota-scadenza ferma` (default: storia NON VALIDA) o `parte` (va la proposta, segnata `scaduta`).
+Ogni turno porta `"copilota": {stato, proposta}` (proposta solo se corretta); in `partita.md` la risposta è segnata
+«scritta dall'autore», «approvata dall'autore» o «non vista dall'autore».
+
 ## Esiti veri (C3, extra `taratura`)
 Quando una persona vera risponde alla consegna, l'esito si registra nell'argomento e si confronta con le storie:
 ```

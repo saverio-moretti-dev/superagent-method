@@ -11,6 +11,7 @@ Uso:
               [--apertura APERTURA.txt] [--copia frasi.txt] [--eventi eventi.json] [--ritardo "due giorni"]
               [--controllo-turno haiku] [--controllo-turno-azione ferma|segna]
               [--bivio ORIGINE/storia.json --dal-turno N --risposta RISPOSTA.txt]
+              [--copilota [--copilota-attesa 120] [--copilota-scadenza ferma|parte]]
   (i file --apertura/--copia/--eventi li prepara campagne.py prepara, dalle schede approvate)
   storia.py indice DIR        rifà DIR/giro.json dalle storie presenti
 
@@ -34,6 +35,11 @@ Le sessioni salvate dalla CLI per master e tester si cancellano a fine storia.
 del personaggio esterno, scritta dall'autore. I turni 1..N-1 si ereditano (copiati, «ereditato») e tester e master
 partono in sessioni nuove con quei turni come ricordo; la risposta nuova passa da check_fuga, non dal controllo del turno
 (cambiare le condizioni è lo scopo del bivio). Solo dalla stessa storia: niente da altre storie o altri tester.
+--copilota (extra «copilota», D1; lo aggiunge campagne.py prepara): ogni risposta del master al tester (non la storia di
+partenza) prima di partire va in DIR/<nome>/copilota/turno-N.json con stato «in attesa»; la storia aspetta che l'autore
+la segni «approvata» o «corretta» con il suo testo (campagne.py copilota). La correzione passa da check_fuga: se fuga, il
+file torna «in attesa» con il motivo. Attesa massima --copilota-attesa minuti (default 120): poi con «ferma» (default) la
+storia si chiude NON VALIDA, con «parte» va la proposta del master, segnata «scaduta». Il turno porta «copilota».
 Exit 0 = finita (qualunque esito), 1 = non valida o errore."""
 import json, os, re, shutil, subprocess, sys, tempfile, time, uuid
 
@@ -69,15 +75,19 @@ def args(a):
     o = {"livello": 3, "turni": 6, "chiamate": 12, "modello-tester": "sonnet", "modello-master": "sonnet",
          "vietate": None, "chrome": False, "siti": "", "controllo": None,
          "apertura": None, "copia": None, "eventi": None, "ritardo": "", "controllo-turno": None,
-         "controllo-turno-azione": "ferma", "bivio": None, "dal-turno": None, "risposta": None}
+         "controllo-turno-azione": "ferma", "bivio": None, "dal-turno": None, "risposta": None,
+         "copilota": False, "copilota-attesa": 120, "copilota-scadenza": "ferma"}
     i = 0
     while i < len(a):
         k = a[i].lstrip("-")
-        if k == "chrome":
-            o["chrome"] = True; i += 1; continue
+        if k in ("chrome", "copilota"):
+            o[k] = True; i += 1; continue
         o[k] = a[i + 1]; i += 2
     for k in ("livello", "turni", "chiamate"):
         o[k] = int(o[k])
+    o["copilota-attesa"] = float(o["copilota-attesa"])
+    if o["copilota-scadenza"] not in ("ferma", "parte"):
+        sys.exit("--copilota-scadenza: ferma | parte")
     if o["bivio"]:
         if not o["dal-turno"] or not o["risposta"]:
             sys.exit("--bivio chiede --dal-turno N e --risposta FILE")
@@ -259,6 +269,52 @@ def storia(o):
             t += f"\nFra l'azione del tester e la risposta dell'autore passano: {o['ritardo']}. Mettilo in scena."
         return t, [e["id"] for e in ev]
 
+    def scrivi_atomico(p, d):
+        tmp = p + ".tmp"
+        json.dump(d, open(tmp, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+        os.replace(tmp, p)
+
+    def copilota(n_dest, fa, msg, note):
+        """D1: la risposta del master aspetta l'autore. Ritorna (testo da mandare o None, info per il turno)."""
+        cdir = os.path.join(dove, "copilota"); os.makedirs(cdir, exist_ok=True)
+        f = os.path.join(cdir, f"turno-{n_dest}.json")
+        scrivi_atomico(f, {"storia": o["nome"], "turno": n_dest, "tester_ha_fatto": fa, "proposta": msg,
+                           "note_master": note, "stato": "in attesa", "scritta": time.strftime("%Y-%m-%d %H:%M")})
+        C["stato"] = "aspetta l'autore"; C["copilota_attesa"] = f; salva()
+        print(f"{o['nome']}: risposta del turno {n_dest} in attesa dell'autore → campagne.py copilota", flush=True)
+        passo = float(os.environ.get("STORIA_COPILOTA_PASSO", "5"))
+        scade = time.time() + o["copilota-attesa"] * 60
+        while True:
+            try:
+                d = json.load(open(f, encoding="utf-8"))
+            except (OSError, ValueError):
+                d = {}
+            stato = d.get("stato")
+            if stato == "approvata":
+                testo, info = msg, {"stato": "approvata"}
+                break
+            if stato == "corretta":
+                testo = (d.get("testo") or "").strip()
+                fuga = check_fuga.trova(testo, check_fuga.SEMPRE + vietate) + check_fuga.segnaposto(testo) if testo else ["testo vuoto"]
+                if not fuga:
+                    info = {"stato": "corretta", "proposta": msg}
+                    break
+                d.update(stato="in attesa", rifiutata="la correzione contiene parole che il tester non deve leggere: " + ", ".join(fuga))
+                scrivi_atomico(f, d)
+            if time.time() > scade:
+                if o["copilota-scadenza"] == "parte":
+                    testo, info = msg, {"stato": "scaduta"}
+                else:
+                    testo, info = None, {"stato": "scaduta", "proposta": msg}
+                    C["valida"] = False; C["motivi"].append(f"copilota: l'autore non ha risposto al turno {n_dest} in {o['copilota-attesa']:g} min")
+                d["stato"] = "scaduta"; scrivi_atomico(f, d)
+                break
+            time.sleep(passo)
+        d.update(esito=info["stato"], chiusa=time.strftime("%Y-%m-%d %H:%M"))
+        scrivi_atomico(f, d)
+        C["stato"] = "in corso"; C.pop("copilota_attesa", None); salva()
+        return testo, info
+
     salva()
     if B:
         primo = None
@@ -283,6 +339,7 @@ def storia(o):
              "contesto non dà (numeri di telefono, indirizzi, prezzi, condizioni): scrivili in forma generica (\"il "
              "numero che ti ha girato\") o segnali come BUCO. Mai segnaposto tra parentesi quadre.")
     m_nuovo, m_recap = False, ""
+    cop = None  # esito del copilota per la risposta che arriva al prossimo turno
     if B:
         # bivio: la risposta dell'autore apre il turno N; il master parte in una sessione nuova alla prima risposta
         msg, note, tent = B["risposta"], "(risposta scelta dall'autore: bivio)", 1
@@ -340,6 +397,8 @@ def storia(o):
         dec = sezione(t, "DECISIONE", ())
         turno = {"n": n, "master": msg, "master_note": note, "riscritto": tent == 2, "tester_fa": fa,
                  "tester_conclusione": concl, "chiuso_dal_tetto": chiuso, "decisione": dec, "cieco": ok, "interrotto": rc == 3, "ricerche": ricerche}
+        if cop:
+            turno["copilota"] = cop
         C["turni"].append(turno); salva()
         if not ok:
             C["valida"] = False; C["motivi"].append(f"tester turno {n}: check_blind SOSPETTO")
@@ -358,7 +417,10 @@ def storia(o):
                 C["motivi"].append(f"tester turno {n}: interrotto dal tetto di chiamate prima di rispondere (alzare --chiamate)")
             break
         extra, ev_ids = extra_mondo(n)
-        msg, note, tent = master(m_recap + f"Turno {n} del tester. Il tester fa:\n\n{fa}\n\nRispondi come l'autore o il mondo, "
+        avviso = ("L'autore ha corretto la tua ultima risposta: al tester è arrivata questa, non la tua. Da qui resta coerente "
+                  f"con essa, vale come un fatto delle schede:\n\n{C['turni'][-1]['master']}\n\n"
+                  if (C["turni"][-1].get("copilota") or {}).get("stato") == "corretta" else "")
+        msg, note, tent = master(m_recap + avviso + f"Turno {n} del tester. Il tester fa:\n\n{fa}\n\nRispondi come l'autore o il mondo, "
                                  "formato MESSAGGIO AL TESTER / NOTE PRIVATE." + extra, n, nuovo=m_nuovo)
         m_nuovo, m_recap = False, ""
         if ev_ids:
@@ -366,6 +428,11 @@ def storia(o):
         if msg is not None and not controllo_turno(n, msg):
             C["turni"][-1]["master_dopo_scartato"] = msg
             msg = None
+        cop = None
+        if msg is not None and o["copilota"]:
+            msg, cop = copilota(n + 1, fa, msg, note)
+            if msg is None:
+                C["turni"][-1]["copilota_dopo"] = cop
         n += 1
 
     C["ricerche"] = sum(t.get("ricerche", 0) for t in C["turni"])
@@ -381,7 +448,9 @@ def storia(o):
         if "errore_api" in tu:
             continue
         if tu["n"] > 1:
-            partita.append(f"## Master, risposta al turno {tu['n'] - 1}\n{tu['master']}\n")
+            cp = (tu.get("copilota") or {}).get("stato")
+            nota = {"corretta": " (scritta dall'autore)", "approvata": " (approvata dall'autore)", "scaduta": " (non vista dall'autore)"}.get(cp, "")
+            partita.append(f"## Master, risposta al turno {tu['n'] - 1}{nota}\n{tu['master']}\n")
         partita.append(f"## Tester, turno {tu['n']}{' (ereditato)' if tu.get('ereditato') else ''}\nCOSA FACCIO: {tu['tester_fa']}\nA CHE CONCLUSIONE SONO ARRIVATO: {tu['tester_conclusione']}\n"
                        + (f"DECISIONE: {tu['decisione']}\n" if tu["decisione"] else ""))
     testo_partita = "\n".join(partita)
