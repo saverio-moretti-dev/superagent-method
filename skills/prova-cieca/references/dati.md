@@ -8,7 +8,7 @@ inoltra a `storia.py`, accanto a `storia.json` c'è il collegamento `campagna.js
 
 ## Dove stanno
 ```
-<argomento>/                         una cartella per argomento (repo locale: `argomento nuovo` fa git init, niente remoto)
+<argomento>/                         una cartella per argomento (repo locale: `argomento nuovo` fa git init, niente remoto; saltato se è già dentro una repo, o con `--senza-git`)
   argomento.json · LEGGIMI.md        id, titolo, creato, extra dell'argomento (`taratura`)
   esiti-veri.json                    C3 (solo se `taratura` è acceso): esiti di persone vere, anonimi, MAI fuori da questa repo
   memoria.json                       C2: domande in attesa, motivi, esiti per profilo, obiezioni, profili consumati (tutte le campagne)

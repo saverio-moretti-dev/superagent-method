@@ -9,7 +9,9 @@ Non lancia modelli e non spende: prepara i file che storia.py usa e legge ciò c
 Formato dei dati: references/dati.md. Libreria globale (profili, manuale globale, ricette): --lib DIR o $CAMPAGNE_LIB.
 
 Argomento
-  campagne.py argomento nuovo DIR [--titolo "…"]   cartella dell'argomento: argomento.json, memoria.json, campagne/ (git locale)
+  campagne.py argomento nuovo DIR [--titolo "…"] [--senza-git]
+                                                    cartella dell'argomento: argomento.json, memoria.json, campagne/ (git
+                                                    locale, saltato se DIR è già dentro una repo)
   campagne.py argomento stato DIR                   campagne, giri, storie, domande in attesa
   campagne.py analisi DIR                           tutte le campagne dell'argomento: tabella + prompt per l'analisi
 Extra selezionabili (mai attivi da soli: si accendono per argomento o per campagna; references/dati.md § Extra)
@@ -211,7 +213,7 @@ def memoria_file(s):
 MEMORIA_VUOTA = {"domande_in_attesa": [], "motivi": [], "esiti_profili": {}, "obiezioni": [], "giri": []}
 
 
-def argomento_nuovo(d, titolo):
+def argomento_nuovo(d, titolo, senza_git=False):
     d = os.path.abspath(d)
     if os.path.exists(os.path.join(d, "argomento.json")):
         sys.exit(f"argomento già esistente: {d}")
@@ -227,10 +229,17 @@ def argomento_nuovo(d, titolo):
             "(storie, schede, giri). `memoria.json` raccoglie buchi, motivi ed esiti di tutte; `campagne.py analisi` le "
             "mette a confronto. Formato: references/dati.md della skill prova-cieca.\n")
     git = ""
-    if not os.path.isdir(os.path.join(d, ".git")) and shutil.which("git"):
+    if senza_git:
+        git = " · senza git (--senza-git)"
+    elif shutil.which("git"):
         import subprocess
-        r = subprocess.run(["git", "init", "-q", d], capture_output=True, text=True)
-        git = " · git locale" if r.returncode == 0 else f" · git init fallito: {r.stderr.strip()}"
+        dentro = subprocess.run(["git", "-C", d, "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+        if dentro.returncode == 0:
+            # già in un work tree (anche il proprio .git): un init qui creerebbe una repo annidata
+            git = f" · git saltato: già dentro la repo {dentro.stdout.strip()}"
+        else:
+            r = subprocess.run(["git", "init", "-q", d], capture_output=True, text=True)
+            git = " · git locale" if r.returncode == 0 else f" · git init fallito: {r.stderr.strip()}"
     print(f"argomento {d}{git} (nessun remoto: pubblicarlo è una scelta dell'autore)")
     return 0
 
@@ -1290,7 +1299,7 @@ def nuova_camp(sid, domanda):
 def opzioni(a):
     pos, o = [], {}
     i = 0
-    flag = {"blocca", "sblocca", "personalizzato", "anche-remoto", "controllato", "approva"}
+    flag = {"blocca", "sblocca", "personalizzato", "anche-remoto", "controllato", "approva", "senza-git"}
     while i < len(a):
         if a[i].startswith("--"):
             k = a[i][2:]
@@ -1310,7 +1319,7 @@ def main(a):
     cmd = pos[0]
     if cmd == "argomento":
         if pos[1] == "nuovo":
-            return argomento_nuovo(pos[2], o.get("titolo"))
+            return argomento_nuovo(pos[2], o.get("titolo"), o.get("senza-git", False))
         if pos[1] == "stato":
             return argomento_stato(pos[2])
     if cmd == "analisi":
