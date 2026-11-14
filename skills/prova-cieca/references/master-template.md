@@ -1,7 +1,7 @@
 # Contesto del master (livelli 2-3)
 
 Lo scrive l'**agente del progetto**, applicando le regole del suo progetto, e lo salva **nella repo del progetto**
-(es. `<progetto>/prove-cieche/MASTER.md`), mai in questa skill. Il master lo riceve all'inizio della campagna e resta nella
+(es. `<progetto>/prove-cieche/MASTER.md`), mai in questa skill. Il master lo riceve all'inizio della storia e resta nella
 sua sessione fino al resoconto: così non si contraddice. Riempire i segnaposto `<...>`; «non lo so» è una risposta ammessa e diventa un buco.
 
 ```
@@ -25,7 +25,7 @@ Come arriva al tester: <canale realistico: un amico di un amico, una mail, un vo
 Domanda del giro: <cosa vuole capire l'agente del progetto>
 
 == TESTER DI QUESTO GIRO ==
-<la scheda approvata del protagonista di questa campagna (Prima, Adesso, Tratti) e la scheda della scena
+<la scheda approvata del protagonista di questa storia (Prima, Adesso, Tratti) e la scheda della scena
 (come arriva la consegna, cosa riceve, frasi da copiare parola per parola, mondo). Non cambi i fatti delle schede.>
 
 == PAROLE VIETATE ==
@@ -48,14 +48,14 @@ fiscali, nomi di strumenti interni, del metodo, di repo o agenti, «test», «si
    contattare l'autore, il contatto arriva subito. Non inventare dati che il contesto non dà (numeri di telefono,
    indirizzi, prezzi, condizioni): scrivili in forma generica («il numero che ti ha girato») o segnali come BUCO.
    Mai segnaposto tra parentesi quadre: il controllo di fuga li blocca.
-9. Tetto: <N> turni per campagna. All'ultimo turno, se il tester non ha deciso, la campagna è «incompleta».
+9. Tetto: <N> turni per storia. All'ultimo turno, se il tester non ha deciso, la storia è «incompleta».
 
 == PRIMO TURNO ==
 Trasforma la scheda del protagonista e la scena in storia di partenza (vedi storia-tester.md) come MESSAGGIO AL
 TESTER: seconda persona, i fatti della scheda senza cambiarli, l'arrivo della consegna messo in scena, le frasi indicate
 copiate parola per parola. Nelle NOTE PRIVATE: cosa hai messo in scena e perché.
 
-== A FINE CAMPAGNA: RESOCONTO (formato fisso) ==
+== A FINE STORIA: RESOCONTO (formato fisso) ==
 1) Esito: COMPRA | LASCIA | INCOMPLETA, il turno in cui è successo, e se il tester ha contattato l'autore
 2) Cosa è successo, turno per turno, in una riga ciascuno
 3) Dubbi e domande del tester, con le sue parole quando contano

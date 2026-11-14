@@ -1,6 +1,6 @@
 # Schede e profili
 
-Le schede sono decise **prima** della sessione dal coordinatore insieme all'autore della consegna (e agli agenti
+Le schede sono decise **prima** della campagna dal coordinatore insieme all'autore della consegna (e agli agenti
 coinvolti), mai dal master durante il gioco. Ogni scheda ha uno **stato**: `bozza` → `approvata`. Si gioca solo con
 schede approvate. Tutto è modificabile; ogni modifica dopo un giro crea una versione nuova (il giro vecchio resta
 legato alla versione con cui è stato giocato).
@@ -11,7 +11,7 @@ solo campo. Generare = un agente scrive una proposta coerente con i campi già r
 correggono. Ciò che è generato resta `bozza` finché qualcuno non lo approva. Generare costa token: si genera solo ciò
 che manca, mai di nuovo ciò che c'è.
 
-## 1. Scheda del protagonista (una per campagna)
+## 1. Scheda del protagonista (una per storia)
 | Campo | Obbligatorio | Note |
 |---|---|---|
 | Nome, età, luogo | sì | luoghi reali solo se coerenti: il protagonista li cercherà |
@@ -26,7 +26,7 @@ che manca, mai di nuovo ciò che c'è.
 Vietato: esiti suggeriti («è interessato», «è scettico ma…») e istruzioni di durezza. Un prior realistico sì
 («riceve spesso proposte e ne lascia cadere la maggior parte»).
 
-## 2. Scheda del personaggio esterno (una per sessione)
+## 2. Scheda del personaggio esterno (una per campagna)
 È ciò che il master sa dell'autore: niente di più. **Ogni riga ha la sua fonte**:
 `AUTORE` (detto o deciso dall'autore, con data) · `FATTO` (si vede e si prova nella consegna) ·
 `COORDINATORE` (deciso da chi coordina) · `DEDOTTO` (scritto da un agente: **da confermare con l'autore** prima di
@@ -43,25 +43,26 @@ approvare la scheda). Una scheda con righe `DEDOTTO` non confermate resta in boz
 | Cosa non si sa | ciò che il master non deve inventare (diventa un buco) |
 | Parole vietate | ciò che non deve mai arrivare al protagonista |
 
-Prima di ogni sessione il coordinatore può chiedere all'autore di affinare questa scheda, partendo dai buchi dei giri
-precedenti: è il modo in cui le campagne migliorano di sessione in sessione.
+Prima di ogni campagna il coordinatore può chiedere all'autore di affinare questa scheda, partendo dai buchi dei giri
+precedenti: è il modo in cui le storie migliorano di campagna in campagna.
 
-## 3. Scheda della scena (una per sessione, varianti per protagonista)
+## 3. Scheda della scena (una per campagna, varianti per protagonista)
 | Campo | Note |
 |---|---|
-| Domanda della sessione | solo per coordinatore e master |
+| Domanda della campagna | solo per coordinatore e master |
 | Come arriva la consegna | chi la porta (un amico, un cliente, una mail) e con quali parole |
 | Cosa riceve il protagonista | link o testo; **solo la variante adatta a quel protagonista** (es. il tipo di demo del suo tipo di attività) |
+| Cosa sa l'amico | cosa sanno i secondari (chi ha passato il link, il socio) del personaggio esterno e della proposta; dipende dalla storia della campagna; vuoto = solo ciò che dice la scena |
 | Frasi da copiare parola per parola | ciò che il master deve riportare identico (link, istruzioni sul browser) |
 | Mondo | stagione, momento, terze persone che possono comparire, imprevisti ammessi |
 
 ## Profili (libreria riusabile)
-Un **profilo** è una scheda del protagonista senza la scena: una persona pronta, riusabile in più sessioni.
+Un **profilo** è una scheda del protagonista senza la scena: una persona pronta, riusabile in più campagne.
 - **Riusare lo stesso profilo** quando si vuole confrontare: stessa persona, consegna cambiata (versione 1 contro
   versione 2). È il modo più economico di misurare un miglioramento: la storia non si riscrive.
 - **Derivare** un profilo simile quando serve varietà: si copia, si cambiano alcuni tratti, si dà un nome nuovo e si
   segna «derivato da <profilo> v<N>». Costa meno che generarlo da zero.
 - **Nuovo profilo** quando il tipo di persona non c'è ancora.
-- Ogni profilo tiene: versione, dove è stato usato, esiti delle sue campagne (per il coordinatore, mai per il
+- Ogni profilo tiene: versione, dove è stato usato, esiti delle sue storie (per il coordinatore, mai per il
   protagonista). Un profilo con dati superati (luogo, prezzi di mercato, situazione) si aggiorna in una versione nuova.
-- Un protagonista non vede mai le campagne passate del suo profilo: ogni campagna parte da un processo nuovo.
+- Un protagonista non vede mai le storie passate del suo profilo: ogni storia parte da un processo nuovo.

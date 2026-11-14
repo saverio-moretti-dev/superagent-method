@@ -12,7 +12,7 @@
 # Messaggi fra sessioni: un claude -p può riceverli come una sessione qualunque. Il sorvegliante chiude il processo al
 # primo evento result; check_blind.py segna SOSPETTO ogni transcript in cui ne è entrato uno.
 # CLI_TURNS=N (solo per le prove del sorvegliante) alza il --max-turns passato alla CLI.
-# Campagne (livelli 2-3, campagna.py): SESSIONE=<uuid> apre una sessione che resta salvata, RIPRENDI=<uuid> la riprende
+# Storie (livelli 2-3, storia.py; campagna.py è un alias): SESSIONE=<uuid> apre una sessione che resta salvata, RIPRENDI=<uuid> la riprende
 # (stessi strumenti: --safe-mode + --resume verificato il 12/11/2026), CARTELLA=<dir> usa quella cartella vuota invece di
 # una temporanea e non la cancella (la ripresa vuole la stessa cartella). Senza queste variabili: come sempre.
 set -euo pipefail

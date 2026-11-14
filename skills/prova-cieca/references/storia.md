@@ -1,21 +1,24 @@
-# Campagne (livelli 2-3): la storia del protagonista
+# Storie (livelli 2-3): la storia del protagonista
 
-Una campagna non «testa una consegna». **Racconta un pezzo della vita di una persona** (il protagonista) e
+Una storia non «testa una consegna». **Racconta un pezzo della vita di una persona** (il protagonista) e
 guarda cosa succede quando, per caso, la consegna entra nella sua storia. La consegna è un evento della
 storia, non il suo argomento. Il risultato è l'analisi di come è andata, non un voto.
 
 ## Le parole
-- **Sessione di campagne**: un gruppo di campagne preparate insieme, con la stessa domanda, le stesse regole di
-  sessione e lo stesso personaggio esterno. Esempio: «tre titolari diversi ricevono lo stesso link».
-- **Campagna**: una partita a due, master e protagonista, in processi separati. Un protagonista per campagna.
+- **Argomento**: ciò che si vuole testare nel tempo (es. «i miei forni»). Una cartella, repo locale, con tutte le
+  campagne, la memoria comune e l'analisi trasversale (`campagne.py analisi`).
+- **Campagna**: un gruppo di storie preparate insieme, con la stessa domanda, le stesse regole di campagna e lo stesso
+  personaggio esterno. Esempio: «tre titolari diversi ricevono lo stesso link». Una campagna nuova sullo stesso
+  argomento cambia schede o storia e resta nella stessa cartella.
+- **Storia**: una partita a due, master e protagonista, in processi separati. Un protagonista per storia.
 - **Protagonista**: il tester. Decide da solo; conosce solo la propria storia.
 - **Personaggio esterno**: l'autore della consegna come compare nella storia (chi propone il sito, il servizio, il
   testo). Lo interpreta il master, solo dalla sua scheda. Il protagonista lo incontra per caso.
 - **Master**: interpreta il personaggio esterno e il mondo (tempi, imprevisti, terze persone). Mai il protagonista.
-- **Schede**: decise **prima** della sessione, mai improvvisate dal master (`schede.md`).
-- **Manuale**: regole globali (sempre) + regole della sessione + controlli (`manuale.md`).
+- **Schede**: decise **prima** della campagna, mai improvvisate dal master (`schede.md`).
+- **Manuale**: regole globali (sempre) + regole della campagna + controlli (`manuale.md`).
 
-## L'arco di ogni campagna
+## L'arco di ogni storia
 | Momento | Cosa contiene | Chi lo scrive |
 |---|---|---|
 | **Prima** (era X) | la vita del protagonista fino a ieri: lavoro, scelte, soldi, esperienze buone e cattive | scheda del protagonista |
@@ -28,13 +31,13 @@ La storia di partenza deve essere **fatta bene**: concreta, coerente, con una vi
 consegna. Il personaggio esterno nella storia di partenza occupa una riga (il canale), non un paragrafo.
 
 ## Preparazione (prima di spendere per giocare)
-1. **Domanda della sessione**: cosa si vuole capire (es. «un titolare che non ha mai pensato a un sito, davanti
+1. **Domanda della campagna**: cosa si vuole capire (es. «un titolare che non ha mai pensato a un sito, davanti
    a questa demo, cosa fa?»). La domanda resta al coordinatore e al master, mai al protagonista.
 2. **Schede**: una per protagonista, una del personaggio esterno, una della scena (`schede.md`). Il coordinatore
    le prepara con l'autore e con gli agenti coinvolti; si possono generare a pezzi, ma si approvano tutte.
-3. **Regole della sessione e controlli** (`manuale.md`).
+3. **Regole della campagna e controlli** (`manuale.md`).
 4. **Controllo di completezza**: una scheda in bozza, con campi obbligatori vuoti o con frasi dedotte non
-   confermate dall'autore, blocca la sessione. Si gioca solo con schede approvate.
+   confermate dall'autore, blocca la campagna. Si gioca solo con schede approvate.
 5. **Stima del costo** dichiarata prima del giro (come per ogni prova cieca).
 
 ## I turni
@@ -68,21 +71,21 @@ La scrive il coordinatore (o l'agente del progetto) da partita, note private e r
 7. **Fedeltà del master**: ha promesso cose fuori scheda? più morbido o più duro del vero?
 8. **Validità** (`validita.md`) e, per il browser, schermate fatte.
 9. **Cosa avrebbe cambiato l'esito**: ipotesi, segnate come ipotesi.
-10. **Cosa fare adesso**: correzioni alla consegna, domande all'autore, campagne da rifare.
+10. **Cosa fare adesso**: correzioni alla consegna, domande all'autore, storie da rifare.
 
-Più campagne della stessa sessione non si mediano: si confrontano le storie (perché uno ha contattato e l'altro no).
+Più storie della stessa campagna non si mediano: si confrontano le storie (perché uno ha contattato e l'altro no).
 
 ## Strumenti
-`scripts/campagne.py` gestisce sessioni, schede, profili, controlli e prepara i giri; con `--apertura` il master di
-`campagna.py` mette in scena la storia approvata senza cambiarne i fatti e le frasi da copiare sono controllate. Formato: `dati.md`.
+`scripts/campagne.py` gestisce campagne, schede, profili, controlli e prepara i giri; con `--apertura` il master di
+`storia.py` mette in scena la storia approvata senza cambiarne i fatti e le frasi da copiare sono controllate. Formato: `dati.md`.
 
 ## Più avanti (non ora)
 
-Campagne interattive: dopo ogni turno l'autore stesso risponde al posto del master, da una pagina dedicata.
+Storie interattive: dopo ogni turno l'autore stesso risponde al posto del master, da una pagina dedicata.
 
 ## Regole già valide che restano
-- Un tester vive solo nella propria campagna; master e protagonista in processi separati; nessun canale fra campagne.
-- **Stesso master per più campagne** = stessa scheda e stesso contesto, ma un processo per campagna.
-- Campagna interrotta dal tetto di chiamate o da un errore dell'API = **non valida**, non un esito.
+- Un tester vive solo nella propria storia; master e protagonista in processi separati; nessun canale fra storie.
+- **Stesso master per più storie** = stessa scheda e stesso contesto, ma un processo per storia.
+- Storia interrotta dal tetto di chiamate o da un errore dell'API = **non valida**, non un esito.
 - Ogni chiamata a strumenti conta nel tetto; il tetto è scritto anche nel prompt.
 - Il protagonista non sa di essere in una prova e non riceve nulla della situazione reale dell'autore.

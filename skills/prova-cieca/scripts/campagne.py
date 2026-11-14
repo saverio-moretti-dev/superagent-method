@@ -1,40 +1,48 @@
 #!/usr/bin/env python3
-"""Sessioni di campagne: schede, profili, manuale, controlli, preparazione dei giri, quadro e memoria.
+"""Argomenti, campagne e storie: schede, profili, manuale, controlli, preparazione dei giri, quadro, memoria, analisi.
 
-Non lancia modelli e non spende: prepara i file che campagna.py usa e legge ciò che produce.
+Gerarchia (14/11): ARGOMENTO (una cartella/repo per argomento di test, es. «forni di quartiere»: memoria e analisi di
+tutte le campagne) > CAMPAGNA (N storie con le loro schede e controlli; si rifà cambiando schede o storia) > STORIA
+(un protagonista, un tester, giocata da storia.py). Fino al 14/11 «campagna» si chiamava sessione e «storia» campagna.
+
+Non lancia modelli e non spende: prepara i file che storia.py usa e legge ciò che produce.
 Formato dei dati: references/dati.md. Libreria globale (profili, manuale globale, ricette): --lib DIR o $CAMPAGNE_LIB.
 
-Sessione
-  campagne.py nuova SESS --domanda "…" [--consegna URL] [--versione v1]
-  campagne.py stato SESS                      riassunto: schede, stati, cosa blocca
-  campagne.py verifica SESS                   controllo di completezza (exit 1 se qualcosa blocca il gioco)
-  campagne.py imposta SESS chiave valore      campo della sessione (domanda, consegna.link, seme, …)
-  campagne.py protagonista SESS CAMPAGNA SCHEDA [--variante V]   aggiunge una campagna (un protagonista)
-  campagne.py evento SESS ID "testo" [--peso 1] [--dal-turno 1]  mazzo di eventi del mondo
+Argomento
+  campagne.py argomento nuovo DIR [--titolo "…"]   cartella dell'argomento: argomento.json, memoria.json, campagne/ (git locale)
+  campagne.py argomento stato DIR                   campagne, giri, storie, domande in attesa
+  campagne.py analisi DIR                           tutte le campagne dell'argomento: tabella + prompt per l'analisi
+Campagna (CAMP = DIR/campagne/<nome>; fuori da un argomento la memoria sta accanto alla campagna)
+  campagne.py nuova CAMP --domanda "…" [--consegna URL] [--versione v1]
+  campagne.py stato CAMP                      riassunto: schede, stati, cosa blocca
+  campagne.py verifica CAMP                   controllo di completezza (exit 1 se qualcosa blocca il gioco)
+  campagne.py imposta CAMP chiave valore      campo della campagna (domanda, consegna.link, seme, …)
+  campagne.py protagonista CAMP STORIA SCHEDA [--variante V]   aggiunge una storia (un protagonista)
+  campagne.py evento CAMP ID "testo" [--peso 1] [--dal-turno 1]  mazzo di eventi del mondo
 Schede
-  campagne.py scheda nuova SESS TIPO ID [--profilo P [--versione N]]   TIPO: protagonista|esterno|scena|secondario
-  campagne.py scheda imposta SESS ID CAMPO "valore" [--fonte F] [--blocca|--sblocca] [--personalizzato]
-  campagne.py scheda approva SESS ID          approva (rifiuta se mancano obbligatori o ci sono righe DEDOTTO)
-  campagne.py scheda conferma SESS ID CAMPO   riga DEDOTTO/GENERATO confermata dall'autore → fonte AUTORE
-  campagne.py scheda versioni SESS ID [VA VB] versioni affiancate (cosa è cambiato)
-Controlli (tre livelli: globale → sessione → campagna)
-  campagne.py controllo SESS CHIAVE VALORE [--campagna C] [--blocca]
-  campagne.py controlli SESS [--campagna C]   valori risolti, con il livello che vince
+  campagne.py scheda nuova CAMP TIPO ID [--profilo P [--versione N]]   TIPO: protagonista|esterno|scena|secondario
+  campagne.py scheda imposta CAMP ID CAMPO "valore" [--fonte F] [--blocca|--sblocca] [--personalizzato]
+  campagne.py scheda approva CAMP ID          approva (rifiuta se mancano obbligatori o ci sono righe DEDOTTO)
+  campagne.py scheda conferma CAMP ID CAMPO   riga DEDOTTO/GENERATO confermata dall'autore → fonte AUTORE
+  campagne.py scheda versioni CAMP ID [VA VB] versioni affiancate (cosa è cambiato)
+Controlli (tre livelli: globale → campagna → storia)
+  campagne.py controllo CAMP CHIAVE VALORE [--storia S] [--blocca]
+  campagne.py controlli CAMP [--storia S]     valori risolti, con il livello che vince
 Generare (non spende: scrive una richiesta che chi coordina esegue)
-  campagne.py genera SESS ID [--campo C | --sezione tutti]       → SESS/richieste/genera-<ID>-<ora>.json + prompt
-  campagne.py applica SESS ID RISPOSTA.json   riempie solo campi vuoti e non bloccati, come GENERATO (bozza)
+  campagne.py genera CAMP ID [--campo C | --sezione tutti]       → CAMP/richieste/genera-<ID>-<ora>.json + prompt
+  campagne.py applica CAMP ID RISPOSTA.json   riempie solo campi vuoti e non bloccati, come GENERATO (bozza)
 Giro
-  campagne.py prepara SESS GIRO              file per ogni campagna + comandi.sh (campagna.py), mazzo estratto col seme
-  campagne.py quadro SESS GIRO               C1: tabella delle campagne + prompt per l'analisi trasversale
-  campagne.py confronta GIRO C1 C2           A2: due campagne affiancate turno per turno
-  campagne.py stabilita GIRO                 A4: ripetizioni della stessa campagna, quanto cambia l'esito
-  campagne.py memoria SESS GIRO              C2: aggiorna la memoria del progetto (buchi, motivi, profili consumati)
+  campagne.py prepara CAMP GIRO              file per ogni storia + comandi.sh (storia.py), mazzo estratto col seme
+  campagne.py quadro CAMP GIRO               C1: tabella delle storie + prompt per l'analisi trasversale
+  campagne.py confronta GIRO S1 S2           A2: due storie affiancate turno per turno
+  campagne.py stabilita GIRO                 A4: ripetizioni della stessa storia, quanto cambia l'esito
+  campagne.py memoria CAMP GIRO              C2: aggiorna la memoria dell'argomento (buchi, motivi, profili consumati)
 Libreria
-  campagne.py profilo salva SESS SCHEDA [--nome P]       scheda protagonista → profilo (versione nuova se esiste)
+  campagne.py profilo salva CAMP SCHEDA [--nome P]       scheda protagonista → profilo (versione nuova se esiste)
   campagne.py profilo deriva P NUOVO [campo=valore …]    profilo simile, «derivato da P vN»
   campagne.py profilo lista
-  campagne.py ricetta salva SESS NOME | ricetta usa NOME SESS_NUOVA
-  campagne.py esporta SESS FILE.zip | importa FILE.zip DIR
+  campagne.py ricetta salva CAMP NOME | ricetta usa NOME CAMP_NUOVA
+  campagne.py esporta CAMP FILE.zip | importa FILE.zip DIR
 """
 import copy, difflib, glob, json, os, random, re, shutil, sys, time, zipfile
 
@@ -70,6 +78,8 @@ STRUTTURE = {
         ("domanda", True, "solo per coordinatore e master"),
         ("come_arriva", True, "chi porta la consegna e con quali parole"),
         ("cosa_riceve", True, "link o testo; per varianti: righe «variante: testo»"),
+        ("cosa_sa_l_amico", False, "cosa sanno i secondari (l'amico che ha passato il link, il socio…) del personaggio "
+         "esterno e della proposta; dipende dalla storia della campagna; vuoto = solo ciò che dice la scena"),
         ("frasi_da_copiare", False, "una per riga: il master le riporta identiche (link, istruzione sul browser)"),
         ("mondo", True, "stagione, momento, terze persone ammesse, imprevisti ammessi"),
     ],
@@ -78,10 +88,9 @@ STRUTTURE = {
         ("chi_e", True, "due righe: chi è, cosa vuole"),
         ("rapporto", True, "che rapporto ha col protagonista e quanto pesa nelle sue decisioni"),
         ("come_parla", False, "tono, poche parole"),
-        ("cosa_sa_dell_esterno", False, "RISERVATO: lo decide l'autore; vuoto = sa solo ciò che dice la scena"),
     ],
 }
-RISERVATI = {"diario", "cosa_sa_dell_esterno"}  # campi previsti, non usati finché non sono decisi
+RISERVATI = {"diario"}  # campi previsti, non usati finché la funzione non è scelta per la campagna (saghe, A1)
 
 # Controlli globali di default (references/manuale.md). agisce: programma | master | schede
 CONTROLLI = {
@@ -89,8 +98,8 @@ CONTROLLI = {
     "browser": (False, "programma"), "parallelo": (2, "programma"), "ripetizioni": (1, "programma"),
     "modello_tester": ("sonnet", "programma"), "modello_master": ("sonnet", "programma"),
     "modello_controllo": ("haiku", "programma"), "controllo_turno": (True, "programma"),
-    "controllo_turno_azione": ("ferma", "programma"), "tetto_campagna_usd": (None, "programma"),
-    "tetto_sessione_usd": (None, "programma"), "livello": (3, "programma"),
+    "controllo_turno_azione": ("ferma", "programma"), "tetto_storia_usd": (None, "programma"),
+    "tetto_campagna_usd": (None, "programma"), "livello": (3, "programma"),
     "casualita": (1, "master"), "attivita_mondo": ("normale", "master"), "ritardo": ("", "master"),
     "severita": ("media", "schede"), "canale": ("", "schede"), "momento": ("", "schede"),
     "chi_decide": ("da solo", "schede"), "dimestichezza": ("", "schede"), "profondita_ricerca": (None, "programma"),
@@ -129,15 +138,127 @@ def lib_dir(o):
     return os.path.abspath(d)
 
 
-def sess_file(s):
-    return os.path.join(s, "sessione.json")
+def camp_file(s):
+    return os.path.join(s, "campagna.json")
 
 
-def carica_sess(s):
-    d = leggi(sess_file(s))
+def carica_camp(s):
+    d = leggi(camp_file(s))
     if d is None:
-        sys.exit(f"sessione non trovata: {s}")
+        sys.exit(f"campagna non trovata: {s}")
     return d
+
+
+# ---------- argomento ----------
+def argomento_di(s):
+    """La cartella dell'argomento che contiene la campagna (quella con argomento.json), o None."""
+    d = os.path.abspath(s)
+    while True:
+        if os.path.isfile(os.path.join(d, "argomento.json")):
+            return d
+        su = os.path.dirname(d)
+        if su == d:
+            return None
+        d = su
+
+
+def memoria_file(s):
+    a = argomento_di(s)
+    return os.path.join(a, "memoria.json") if a else os.path.join(os.path.dirname(os.path.abspath(s)), "memoria.json")
+
+
+MEMORIA_VUOTA = {"domande_in_attesa": [], "motivi": [], "esiti_profili": {}, "obiezioni": [], "giri": []}
+
+
+def argomento_nuovo(d, titolo):
+    d = os.path.abspath(d)
+    if os.path.exists(os.path.join(d, "argomento.json")):
+        sys.exit(f"argomento già esistente: {d}")
+    os.makedirs(os.path.join(d, "campagne"), exist_ok=True)
+    scrivi(os.path.join(d, "argomento.json"), {"id": os.path.basename(d), "titolo": titolo or os.path.basename(d), "creato": ora()})
+    if not os.path.exists(os.path.join(d, "memoria.json")):
+        scrivi(os.path.join(d, "memoria.json"), MEMORIA_VUOTA)
+    leggimi = os.path.join(d, "LEGGIMI.md")
+    if not os.path.exists(leggimi):
+        open(leggimi, "w", encoding="utf-8").write(
+            f"# {titolo or os.path.basename(d)}\n\nArgomento di prove cieche: ogni cartella in `campagne/` è una campagna "
+            "(storie, schede, giri). `memoria.json` raccoglie buchi, motivi ed esiti di tutte; `campagne.py analisi` le "
+            "mette a confronto. Formato: references/dati.md della skill prova-cieca.\n")
+    git = ""
+    if not os.path.isdir(os.path.join(d, ".git")) and shutil.which("git"):
+        import subprocess
+        r = subprocess.run(["git", "init", "-q", d], capture_output=True, text=True)
+        git = " · git locale" if r.returncode == 0 else f" · git init fallito: {r.stderr.strip()}"
+    print(f"argomento {d}{git} (nessun remoto: pubblicarlo è una scelta dell'autore)")
+    return 0
+
+
+def campagne_di(arg):
+    out = []
+    for f in sorted(glob.glob(os.path.join(arg, "campagne", "*", "campagna.json"))):
+        out.append((os.path.dirname(f), leggi(f)))
+    return out
+
+
+def argomento_stato(arg):
+    arg = os.path.abspath(arg)
+    A = leggi(os.path.join(arg, "argomento.json"))
+    if A is None:
+        sys.exit(f"argomento non trovato: {arg}")
+    M = leggi(os.path.join(arg, "memoria.json"), MEMORIA_VUOTA)
+    cs = campagne_di(arg)
+    print(f"argomento {A['titolo']} · campagne {len(cs)} · giri in memoria {len(M.get('giri', []))}")
+    for d, S in cs:
+        storie = sum(len(storie_giro(g.get("cartella") or os.path.join(d, "giri", g["giro"]))) for g in S.get("giri", []))
+        print(f"  {S['id']:20} {S['stato']:10} storie previste {len(S.get('storie', []))} · giri {len(S.get('giri', []))} · storie giocate {storie}")
+    aperte = [x for x in M.get("domande_in_attesa", []) if x.get("stato") == "aperta"]
+    print(f"domande in attesa per l'autore: {len(aperte)} · profili consumati: {M.get('profili_consumati') or 'nessuno'}")
+    return 0
+
+
+def analisi(arg):
+    """Tutte le campagne dell'argomento, contestualizzate: cosa è cambiato fra una campagna e l'altra e cosa è successo."""
+    arg = os.path.abspath(arg)
+    A = leggi(os.path.join(arg, "argomento.json"))
+    if A is None:
+        sys.exit(f"argomento non trovato: {arg}")
+    M = leggi(os.path.join(arg, "memoria.json"), MEMORIA_VUOTA)
+    righe_t = ["| campagna | giro | storia | scheda | consegna | esito | valida | decisione |", "|---|---|---|---|---|---|---|---|"]
+    contesti, n = [], 0
+    for d, S in campagne_di(arg):
+        contesti.append(f"## Campagna {S['id']}\nDomanda: {S.get('domanda', '')}\nConsegna: {(S.get('consegna') or {}).get('versione', '')} "
+                        f"{(S.get('consegna') or {}).get('link', '')}")
+        for g in S.get("giri", []):
+            gd = g.get("cartella") or os.path.join(d, "giri", g["giro"])
+            meta = leggi(os.path.join(gd, "giro-meta.json"), {})
+            prev = {x["nome"]: x for x in meta.get("storie_previste", [])}
+            contesti.append(f"### giro {g['giro']} · schede {meta.get('schede', {})}")
+            for c in storie_giro(gd):
+                n += 1
+                dec = next((t.get("decisione") for t in reversed(c.get("turni", [])) if t.get("decisione")), "") or ""
+                righe_t.append(f"| {S['id']} | {g['giro']} | {c['nome']} | {prev.get(c['nome'], {}).get('scheda', '')} | "
+                               f"{(S.get('consegna') or {}).get('versione', '')} | {c['esito']} | {c['valida']} | {dec[:50].replace('|', '/')} |")
+            q = os.path.join(gd, "quadro.md")
+            if os.path.exists(q):
+                contesti.append(open(q, encoding="utf-8").read())
+    if not n:
+        print("nessuna storia giocata nell'argomento"); return 1
+    tabella = "\n".join(righe_t)
+    prompt = (f"Argomento di test: {A['titolo']}. Sotto ci sono tutte le campagne fatte su questo argomento: per ognuna la "
+              "domanda, la versione della consegna, le schede usate, l'esito di ogni storia e il quadro del giro. Le campagne "
+              "differiscono per schede, storia o consegna: leggi ogni risultato nel suo contesto, non mediare fra campagne "
+              "diverse. Scrivi in italiano, con queste sezioni:\n1) COSA È CAMBIATO FRA LE CAMPAGNE e cosa ha cambiato negli esiti\n"
+              "2) OBIEZIONI CHE TORNANO IN PIÙ CAMPAGNE\n3) ESITI PER TIPO DI PERSONA, su tutte le campagne\n"
+              "4) BUCHI ANCORA APERTI (domande per l'autore)\n5) PROFILI CONSUMATI (rigiocarli non insegna niente)\n"
+              "6) STORIE NON VALIDE e perché (non contano)\n7) PROSSIMA CAMPAGNA: cosa cambiare\n\n"
+              + tabella + "\n\n" + "\n\n".join(contesti)
+              + "\n\n## Memoria dell'argomento\n" + json.dumps({k: M.get(k) for k in ("domande_in_attesa", "esiti_profili",
+                                                                                     "profili_consumati", "motivi")}, ensure_ascii=False, indent=1))
+    open(os.path.join(arg, "analisi-prompt.md"), "w", encoding="utf-8").write(prompt)
+    open(os.path.join(arg, "analisi-tabella.md"), "w", encoding="utf-8").write(tabella + "\n")
+    print(tabella + f"\n\nprompt per l'analisi dell'argomento: {os.path.join(arg, 'analisi-prompt.md')} "
+          "(lo esegue chi coordina; la risposta va in analisi.md)")
+    return 0
 
 
 # ---------- schede (versionate) ----------
@@ -192,10 +313,8 @@ def problemi_scheda(sc):
     for n, c in sc["campi"].items():
         if campo_vuoto(c):
             continue
-        if n in RISERVATI and n != "cosa_sa_dell_esterno":
+        if n in RISERVATI:
             p.append(f"{sc['id']}: «{n}» è riservato a una funzione non ancora decisa: va lasciato vuoto")
-        if n == "cosa_sa_dell_esterno":
-            p.append(f"{sc['id']}: «cosa_sa_dell_esterno» lo decide l'autore (non ancora deciso): va lasciato vuoto")
         if c.get("fonte") in DA_CONFERMARE:
             p.append(f"{sc['id']}: «{n}» ha fonte {c['fonte']}: da confermare con l'autore")
         if sc["tipo"] == "protagonista":
@@ -212,15 +331,15 @@ def manuale_globale(o):
     return m or {}
 
 
-def risolvi_controlli(o, S, campagna=None):
+def risolvi_controlli(o, S, storia=None):
     """{chiave: (valore, livello, bloccato)}. Un valore bloccato a un livello non si sovrascrive sotto."""
     out = {k: (v, "default", False) for k, (v, _) in CONTROLLI.items()}
-    livelli = [("globale", manuale_globale(o).get("controlli", {})), ("sessione", S.get("controlli", {}))]
-    if campagna:
-        c = next((x for x in S["campagne"] if x["campagna"] == campagna), None)
+    livelli = [("globale", manuale_globale(o).get("controlli", {})), ("campagna", S.get("controlli", {}))]
+    if storia:
+        c = next((x for x in S["storie"] if x["storia"] == storia), None)
         if c is None:
-            sys.exit(f"campagna non trovata: {campagna}")
-        livelli.append(("campagna", c.get("controlli", {})))
+            sys.exit(f"storia non trovata: {storia}")
+        livelli.append(("storia", c.get("controlli", {})))
     for nome, liv in livelli:
         for k, x in liv.items():
             if k in out and out[k][2]:
@@ -251,16 +370,16 @@ def verifica(o, S, s):
     """(blocchi, avvisi)"""
     b, a = [], []
     if not S.get("domanda"):
-        b.append("sessione: manca la domanda")
-    if not S.get("campagne"):
-        b.append("sessione: nessuna campagna (protagonista)")
-    if len(S.get("campagne", [])) > 5:
-        b.append("sessione: più di 5 campagne (oltre non si impara di più)")
-    usate = [S.get("esterno"), S.get("scena")] + S.get("secondari", []) + [c["scheda"] for c in S.get("campagne", [])]
+        b.append("campagna: manca la domanda")
+    if not S.get("storie"):
+        b.append("campagna: nessuna storia (protagonista)")
+    if len(S.get("storie", [])) > 5:
+        b.append("campagna: più di 5 storie (oltre non si impara di più)")
+    usate = [S.get("esterno"), S.get("scena")] + S.get("secondari", []) + [c["scheda"] for c in S.get("storie", [])]
     if not S.get("esterno"):
-        b.append("sessione: manca la scheda del personaggio esterno")
+        b.append("campagna: manca la scheda del personaggio esterno")
     if not S.get("scena"):
-        b.append("sessione: manca la scheda della scena")
+        b.append("campagna: manca la scheda della scena")
     for sid in [x for x in usate if x]:
         if not versioni(s, sid):
             b.append(f"{sid}: scheda inesistente")
@@ -269,37 +388,37 @@ def verifica(o, S, s):
         if sc["stato"] != "approvata":
             b.append(f"{sid}: in bozza (v{sc['versione']})")
         b += problemi_scheda(sc)
-    for c in S.get("campagne", []):
-        ctrl = risolvi_controlli(o, S, c["campagna"])
+    for c in S.get("storie", []):
+        ctrl = risolvi_controlli(o, S, c["storia"])
         for k, ammessi in VALORI.items():
             if valore(ctrl, k) not in ammessi:
-                b.append(f"{c['campagna']}: controllo {k}={valore(ctrl, k)!r} fuori da {ammessi}")
+                b.append(f"{c['storia']}: controllo {k}={valore(ctrl, k)!r} fuori da {ammessi}")
         if not versioni(s, c["scheda"]):
             continue
         p = carica_scheda(s, c["scheda"])
         if valore(ctrl, "casualita") == 2 and campo_vuoto(p["campi"].get("variazioni")):
-            b.append(f"{c['campagna']}: casualità 2 chiede le variazioni scritte nella scheda {c['scheda']} prima del giro")
+            b.append(f"{c['storia']}: casualità 2 chiede le variazioni scritte nella scheda {c['scheda']} prima del giro")
         if valore(ctrl, "chi_decide") not in ("", "da solo") and not S.get("secondari"):
-            b.append(f"{c['campagna']}: chi_decide={valore(ctrl, 'chi_decide')!r} chiede una scheda secondaria (chi decide con lui)")
+            b.append(f"{c['storia']}: chi_decide={valore(ctrl, 'chi_decide')!r} chiede una scheda secondaria (chi decide con lui)")
         if valore(ctrl, "severita") == "alta":
             testo = " ".join(str(x.get("valore", "")) for x in p["campi"].values()).lower()
             if not re.search(r"propost|preventiv|budget|soldi|tempo|concorren|brutt|fregat|delus", testo):
-                a.append(f"{c['campagna']}: severità alta ma la scheda non dice niente di proposte ricevute, budget, "
+                a.append(f"{c['storia']}: severità alta ma la scheda non dice niente di proposte ricevute, budget, "
                          "tempo o esperienze cattive: la severità agisce solo da lì")
         for k in ("canale", "momento", "dimestichezza"):
             v = valore(ctrl, k)
             if v and v.lower() not in json.dumps(p, ensure_ascii=False).lower() + json.dumps(
                     carica_scheda(s, S["scena"]) if S.get("scena") and versioni(s, S["scena"]) else {}, ensure_ascii=False).lower():
-                a.append(f"{c['campagna']}: controllo {k}={v!r} non compare nelle schede: scrivilo nella scheda o togli il controllo")
+                a.append(f"{c['storia']}: controllo {k}={v!r} non compare nelle schede: scrivilo nella scheda o togli il controllo")
         if valore(ctrl, "browser") and valore(ctrl, "chiamate") < valore(ctrl, "chiamate_browser_min"):
-            a.append(f"{c['campagna']}: browser con {valore(ctrl, 'chiamate')} chiamate per turno: ne servono almeno "
+            a.append(f"{c['storia']}: browser con {valore(ctrl, 'chiamate')} chiamate per turno: ne servono almeno "
                      f"{valore(ctrl, 'chiamate_browser_min')} (prepara le alza)")
         if c.get("variante") and S.get("scena") and versioni(s, S["scena"]):
             if not variante_testo(carica_scheda(s, S["scena"]), c["variante"]):
-                b.append(f"{c['campagna']}: variante «{c['variante']}» assente in cosa_riceve della scena")
+                b.append(f"{c['storia']}: variante «{c['variante']}» assente in cosa_riceve della scena")
     att = S.get("controlli", {}).get("attivita_mondo", {}).get("valore")
     if att == "vivo" and not S.get("mazzo"):
-        a.append("sessione: attività del mondo «vivo» ma il mazzo di eventi è vuoto")
+        a.append("campagna: attività del mondo «vivo» ma il mazzo di eventi è vuoto")
     return b, a
 
 
@@ -321,7 +440,7 @@ def righe(v):
 
 ETICHETTE = {"chi_e": "Chi è", "nome_eta_luogo": "Nome, età, luogo", "attivita": "Attività", "cosa_non_puo": "Cosa non può fare o promettere",
              "prezzi_condizioni": "Prezzi e condizioni", "flessibilita": "Flessibilità", "canali_tempi": "Canali e tempi",
-             "abitudini_ricerca": "Abitudini di ricerca"}
+             "abitudini_ricerca": "Abitudini di ricerca", "cosa_sa_l_amico": "Cosa sa l'amico (i secondari) del personaggio esterno"}
 
 
 def etichetta(n):
@@ -371,11 +490,11 @@ def prepara(o, S, s, giro):
     sec = [carica_scheda(s, x) for x in S.get("secondari", [])]
     globale = manuale_globale(o)
     vietate = righe(est["campi"]["parole_vietate"]["valore"]) + globale.get("parole_vietate", [])
-    comandi, meta_c = ["#!/bin/bash", f"# giro preparato {ora()} da campagne.py — sessione {S['id']}", "set -u",
-                       f'C="{os.path.join(BASE, "campagna.py")}"'], []
+    comandi, meta_c = ["#!/bin/bash", f"# giro preparato {ora()} da campagne.py — campagna {S['id']}", "set -u",
+                       f'C="{os.path.join(BASE, "storia.py")}"'], []
     seme0 = int(S.get("seme") or 1)
-    for i, c in enumerate(S["campagne"]):
-        ctrl = risolvi_controlli(o, S, c["campagna"])
+    for i, c in enumerate(S["storie"]):
+        ctrl = risolvi_controlli(o, S, c["storia"])
         prot = carica_scheda(s, c["scheda"])
         turni = 2 if valore(ctrl, "livello") == 2 else int(valore(ctrl, "turni"))
         chiamate = int(valore(ctrl, "profondita_ricerca") or valore(ctrl, "chiamate"))
@@ -383,7 +502,7 @@ def prepara(o, S, s, giro):
             chiamate = max(chiamate, int(valore(ctrl, "chiamate_browser_min")))
         rip = max(1, int(valore(ctrl, "ripetizioni")))
         for r in range(1, rip + 1):
-            nome = c["campagna"] + (f"-r{r}" if rip > 1 else "")
+            nome = c["storia"] + (f"-r{r}" if rip > 1 else "")
             d = os.path.join(giro, "_prep", nome)
             os.makedirs(d, exist_ok=True)
             ricevuto = variante_testo(scena, c.get("variante"))
@@ -405,9 +524,10 @@ def prepara(o, S, s, giro):
                 blocco(scena, "SCENA"),
                 blocco(prot, "PROTAGONISTA"),
                 "\n\n".join(blocco(x, "PERSONAGGIO SECONDARIO (lo interpreti tu, parla poco)") for x in sec)
-                + ("\nSe il protagonista chiede a un secondario cosa sa del personaggio esterno: sa solo ciò che dice la scena."
+                + ("\nSe il protagonista chiede a un secondario cosa sa del personaggio esterno: sa solo ciò che dice la scena "
+                   "(«Cosa sa l'amico», se c'è)."
                    if sec else ""),
-                "== REGOLE DELLA SESSIONE ==\n" + (regole_s or "- nessuna oltre le globali")
+                "== REGOLE DELLA CAMPAGNA ==\n" + (regole_s or "- nessuna oltre le globali")
                 + ("\nResta fuori dalla storia (rispondi in modo neutro): " + "; ".join(S["fuori_storia"]) if S.get("fuori_storia") else "")
                 + ("\nSi può dire: " + "; ".join(S["si_puo_dire"]) if S.get("si_puo_dire") else ""),
                 "== CONTROLLI ==\n" + "\n".join(ctrl_master),
@@ -443,43 +563,54 @@ def prepara(o, S, s, giro):
             comandi.append(" \\\n  ".join(cmd) + (" &" if fondo else ""))
             if fondo and (len(meta_c) + 1) % parallelo == 0:
                 comandi.append("wait")
-            meta_c.append({"nome": nome, "campagna": c["campagna"], "ripetizione": r if rip > 1 else None,
+            meta_c.append({"nome": nome, "storia": c["storia"], "ripetizione": r if rip > 1 else None,
                            "scheda": f"{prot['id']} v{prot['versione']}", "variante": c.get("variante"),
                            "eventi": eventi, "controlli": {k: {"valore": v, "livello": l} for k, (v, l, _) in ctrl.items()}})
     comandi += ["wait", f'python3 "$C" indice "{giro}"', ""]
     p = os.path.join(giro, "comandi.sh")
     open(p, "w", encoding="utf-8").write("\n".join(comandi))
     os.chmod(p, 0o755)
-    meta = {"sessione": S["id"], "domanda": S["domanda"], "consegna": S.get("consegna"), "preparato": ora(),
+    meta = {"campagna": S["id"], "domanda": S["domanda"], "consegna": S.get("consegna"), "preparato": ora(),
             "schede": {x: f"v{carica_scheda(s, x)['versione']}" for x in [S["esterno"], S["scena"]] + S.get("secondari", [])},
-            "campagne_previste": meta_c, "confronto": S.get("confronto"), "avvisi": a}
+            "storie_previste": meta_c, "confronto": S.get("confronto"), "avvisi": a}
     scrivi(os.path.join(giro, "giro-meta.json"), meta)
     # le schede usate restano legate a questo giro: una modifica successiva crea una versione nuova
-    for sid in {S["esterno"], S["scena"], *S.get("secondari", []), *[c["scheda"] for c in S["campagne"]]}:
+    for sid in {S["esterno"], S["scena"], *S.get("secondari", []), *[c["scheda"] for c in S["storie"]]}:
         sc = carica_scheda(s, sid)
         if os.path.basename(giro) not in sc["giocata_in"]:
             sc["giocata_in"].append(os.path.basename(giro))
             scrivi(os.path.join(scheda_dir(s, sid), f"v{sc['versione']}.json"), sc)
     S.setdefault("giri", []).append({"giro": os.path.basename(giro), "cartella": giro, "preparato": ora()})
     S["stato"] = "preparata"
-    scrivi(sess_file(s), S)
-    print(f"preparato: {p} ({len(meta_c)} campagne)" + ("\navvisi:\n- " + "\n- ".join(a) if a else ""))
+    scrivi(camp_file(s), S)
+    print(f"preparato: {p} ({len(meta_c)} storie)" + ("\navvisi:\n- " + "\n- ".join(a) if a else ""))
     return 0
 
 
 # ---------- dopo il giro ----------
-def campagne_giro(giro):
+def file_storia(giro, nome):
+    """storia.json; campagna.json per i giri fatti prima della rinomina (14/11)."""
+    for n in ("storia.json", "campagna.json"):
+        f = os.path.join(giro, nome, n)
+        if os.path.isfile(f):
+            return f
+    return None
+
+
+def storie_giro(giro):
     out = []
-    for f in sorted(glob.glob(os.path.join(giro, "*", "campagna.json"))):
-        out.append(leggi(f))
+    for d in sorted(os.listdir(giro)) if os.path.isdir(giro) else []:
+        f = file_storia(giro, d) if d != "_prep" else None
+        if f:
+            out.append(leggi(f))
     return out
 
 
 def quadro(o, S, s, giro):
-    cs = campagne_giro(giro)
+    cs = storie_giro(giro)
     if not cs:
-        print("nessuna campagna nel giro"); return 1
-    righe_t = ["| campagna | esito | valida | turni | decisione | costo $ |", "|---|---|---|---|---|---|"]
+        print("nessuna storia nel giro"); return 1
+    righe_t = ["| storia | esito | valida | turni | decisione | costo $ |", "|---|---|---|---|---|---|"]
     for c in cs:
         dec = next((t.get("decisione") for t in reversed(c.get("turni", [])) if t.get("decisione")), "") or ""
         righe_t.append(f"| {c['nome']} | {c['esito']} | {c['valida']} | {len(c.get('turni', []))} | "
@@ -491,11 +622,11 @@ def quadro(o, S, s, giro):
         an = os.path.join(d, "analisi.md")
         fonte = an if os.path.exists(an) else os.path.join(d, "resoconto.md")
         parti.append(f"### {c['nome']} ({os.path.basename(fonte)})\n" + (open(fonte, encoding="utf-8").read() if os.path.exists(fonte) else "(manca)"))
-    prompt = (f"Domanda della sessione: {S['domanda']}\n\nSotto ci sono le analisi delle campagne di una sessione. Ogni "
-              "campagna è la storia di una persona diversa: non mediare, confronta. Scrivi in italiano, con queste sezioni:\n"
-              "1) OBIEZIONI RICORRENTI (quante campagne, con le parole dei protagonisti)\n2) DOVE SI FERMANO (punto preciso della consegna)\n"
+    prompt = (f"Domanda della campagna: {S['domanda']}\n\nSotto ci sono le analisi delle storie di una campagna. Ogni "
+              "storia è la storia di una persona diversa: non mediare, confronta. Scrivi in italiano, con queste sezioni:\n"
+              "1) OBIEZIONI RICORRENTI (quante storie, con le parole dei protagonisti)\n2) DOVE SI FERMANO (punto preciso della consegna)\n"
               "3) ESITO PER TIPO DI PERSONA\n4) RISPOSTE DEL PERSONAGGIO ESTERNO CHE HANNO PESATO\n5) BUCHI COMUNI (domande per l'autore)\n"
-              "6) CAMPAGNE NON VALIDE e perché (non contano negli esiti)\n7) COSA FARE ADESSO\n\n" + tabella + "\n\n" + "\n\n".join(parti))
+              "6) STORIE NON VALIDE e perché (non contano negli esiti)\n7) COSA FARE ADESSO\n\n" + tabella + "\n\n" + "\n\n".join(parti))
     open(os.path.join(giro, "quadro-prompt.md"), "w", encoding="utf-8").write(prompt)
     open(os.path.join(giro, "quadro-tabella.md"), "w", encoding="utf-8").write(tabella + "\n")
     print(tabella + f"\n\nprompt per l'analisi trasversale: {os.path.join(giro, 'quadro-prompt.md')} "
@@ -504,9 +635,10 @@ def quadro(o, S, s, giro):
 
 
 def confronta(giro, a, b):
-    ca, cb = leggi(os.path.join(giro, a, "campagna.json")), leggi(os.path.join(giro, b, "campagna.json"))
+    fa, fb = file_storia(giro, a), file_storia(giro, b)
+    ca, cb = (leggi(fa) if fa else None), (leggi(fb) if fb else None)
     if not ca or not cb:
-        sys.exit("campagna mancante")
+        sys.exit("storia mancante")
     out = [f"# Confronto {a} ↔ {b}", f"esito: {ca['esito']} ↔ {cb['esito']} · valida: {ca['valida']} ↔ {cb['valida']}"]
     for n in range(1, max(len(ca["turni"]), len(cb["turni"])) + 1):
         ta = next((t for t in ca["turni"] if t["n"] == n), {})
@@ -521,7 +653,7 @@ def confronta(giro, a, b):
 
 def stabilita(giro):
     gruppi = {}
-    for c in campagne_giro(giro):
+    for c in storie_giro(giro):
         base = re.sub(r"-r\d+$", "", c["nome"])
         gruppi.setdefault(base, []).append(c)
     out = {}
@@ -537,24 +669,24 @@ def stabilita(giro):
     for k, v in out.items():
         print(f"{k}: {v['esiti']} → stabilità {v['stabilita']}" + ("  (esito ambiguo: la consegna si legge in più modi)" if (v["stabilita"] or 1) < 0.67 else ""))
     if not out:
-        print("nessuna campagna ripetuta nel giro")
+        print("nessuna storia ripetuta nel giro")
     return 0
 
 
 def memoria(o, S, s, giro):
-    """C2: registro del progetto, accanto alle sessioni (SESS/../memoria.json)."""
-    mp = os.path.join(os.path.dirname(os.path.abspath(s)), "memoria.json")
-    M = leggi(mp, {"domande_in_attesa": [], "motivi": [], "esiti_profili": {}, "obiezioni": [], "giri": []})
-    g = os.path.basename(os.path.abspath(giro))
+    """C2: memoria dell'argomento (ARG/memoria.json); fuori da un argomento accanto alla campagna."""
+    mp = memoria_file(s)
+    M = leggi(mp, MEMORIA_VUOTA)
+    g = f"{S['id']}/{os.path.basename(os.path.abspath(giro))}"  # campagna/giro: i nomi dei giri si ripetono fra campagne
     if g in M["giri"]:
         print(f"giro {g} già in memoria"); return 0
     meta = leggi(os.path.join(giro, "giro-meta.json"), {})
-    prev = {x["nome"]: x for x in meta.get("campagne_previste", [])}
-    for c in campagne_giro(giro):
+    prev = {x["nome"]: x for x in meta.get("storie_previste", [])}
+    for c in storie_giro(giro):
         if c.get("buchi"):
-            M["domande_in_attesa"].append({"giro": g, "campagna": c["nome"], "testo": c["buchi"], "stato": "aperta"})
+            M["domande_in_attesa"].append({"giro": g, "storia": c["nome"], "testo": c["buchi"], "stato": "aperta"})
         for m in c.get("motivi", []):
-            M["motivi"].append({"giro": g, "campagna": c["nome"], "motivo": m})
+            M["motivi"].append({"giro": g, "storia": c["nome"], "motivo": m})
         prof = prev.get(c["nome"], {}).get("scheda")
         if prof and c["valida"]:
             M["esiti_profili"].setdefault(prof.split(" v")[0], []).append({"giro": g, "versione": prof, "esito": c["esito"]})
@@ -584,12 +716,12 @@ def genera(o, S, s, sid, campo=None):
     if not vuoti:
         print("niente da generare: campi pieni o bloccati (si genera solo ciò che manca)"); return 0
     pieni = {n: c["valore"] for n, c in sc["campi"].items() if not campo_vuoto(c)}
-    prompt = (f"Scheda «{sc['tipo']}» per una simulazione. Domanda della sessione: {S.get('domanda', '')}\n"
+    prompt = (f"Scheda «{sc['tipo']}» per una simulazione. Domanda della campagna: {S.get('domanda', '')}\n"
               f"Campi già decisi (non cambiarli, restaci coerente):\n{json.dumps(pieni, ensure_ascii=False, indent=1)}\n\n"
               f"Proponi SOLO questi campi, concreti e realistici:\n" + "\n".join(f"- {n}: {struttura.get(n, 'campo personalizzato')}" for n in vuoti)
               + "\nVietato: esiti suggeriti (è interessato, comprerà), istruzioni di durezza. Ammesso un prior realistico."
               "\nRispondi solo con un oggetto JSON {campo: testo}.")
-    rq = {"tipo": "genera", "sessione": S["id"], "scheda": sid, "versione": sc["versione"], "campi": vuoti,
+    rq = {"tipo": "genera", "campagna": S["id"], "scheda": sid, "versione": sc["versione"], "campi": vuoti,
           "creata": ora(), "stato": "in coda", "prompt": prompt}
     p = os.path.join(s, "richieste", f"genera-{sid}-{time.strftime('%Y%m%d-%H%M%S')}.json")
     scrivi(p, rq)
@@ -624,7 +756,7 @@ def profilo_salva(o, s, sid, nome=None):
     vs = sorted(int(re.search(r"v(\d+)", f).group(1)) for f in glob.glob(os.path.join(d, "v*.json")))
     p = copy.deepcopy(sc)
     p.update({"id": nome, "versione": (vs[-1] + 1) if vs else 1, "giocata_in": [], "salvato": ora(),
-              "da_sessione": os.path.basename(os.path.abspath(s)), "da_scheda": f"{sid} v{sc['versione']}"})
+              "da_campagna": os.path.basename(os.path.abspath(s)), "da_scheda": f"{sid} v{sc['versione']}"})
     p["campi"].pop("diario", None)
     scrivi(os.path.join(d, f"v{p['versione']}.json"), p)
     print(f"profilo {nome} v{p['versione']}")
@@ -667,16 +799,16 @@ def profilo_lista(o):
 
 
 def ricetta_salva(o, s, nome):
-    S = carica_sess(s)
+    S = carica_camp(s)
     d = os.path.join(lib_dir(o), "ricette", nome)
     if os.path.exists(d):
         sys.exit(f"ricetta già esistente: {nome}")
     r = {k: S.get(k) for k in ("domanda", "regole", "fuori_storia", "si_puo_dire", "controlli", "mazzo", "esterno", "scena", "secondari")}
-    r["campagne"] = [{k: v for k, v in c.items()} for c in S["campagne"]]
-    r.update({"nome": nome, "salvata": ora(), "da_sessione": S["id"]})
+    r["storie"] = [{k: v for k, v in c.items()} for c in S["storie"]]
+    r.update({"nome": nome, "salvata": ora(), "da_campagna": S["id"]})
     os.makedirs(d)
     scrivi(os.path.join(d, "ricetta.json"), r)
-    for sid in {S.get("esterno"), S.get("scena"), *S.get("secondari", []), *[c["scheda"] for c in S["campagne"]]} - {None}:
+    for sid in {S.get("esterno"), S.get("scena"), *S.get("secondari", []), *[c["scheda"] for c in S["storie"]]} - {None}:
         sc = carica_scheda(s, sid)
         sc.update({"versione": 1, "giocata_in": [], "stato": "bozza", "origine": {"ricetta": nome, "da": f"{sid} v{sc['versione']}"}})
         scrivi(os.path.join(d, "schede", sid, "v1.json"), sc)
@@ -689,17 +821,17 @@ def ricetta_usa(o, nome, s):
     r = leggi(os.path.join(d, "ricetta.json"))
     if r is None:
         sys.exit(f"ricetta non trovata: {nome}")
-    if os.path.exists(sess_file(s)):
-        sys.exit(f"sessione già esistente: {s}")
-    S = nuova_sess(os.path.basename(os.path.abspath(s)), r.get("domanda", ""))
-    for k in ("regole", "fuori_storia", "si_puo_dire", "controlli", "mazzo", "esterno", "scena", "secondari", "campagne"):
+    if os.path.exists(camp_file(s)):
+        sys.exit(f"campagna già esistente: {s}")
+    S = nuova_camp(os.path.basename(os.path.abspath(s)), r.get("domanda", ""))
+    for k in ("regole", "fuori_storia", "si_puo_dire", "controlli", "mazzo", "esterno", "scena", "secondari", "storie"):
         if r.get(k) is not None:
             S[k] = r[k]
     S["origine"] = {"ricetta": nome}
-    scrivi(sess_file(s), S)
+    scrivi(camp_file(s), S)
     if os.path.isdir(os.path.join(d, "schede")):
         shutil.copytree(os.path.join(d, "schede"), os.path.join(s, "schede"), dirs_exist_ok=True)
-    print(f"sessione {s} dalla ricetta {nome}: schede in bozza, da riapprovare")
+    print(f"campagna {s} dalla ricetta {nome}: schede in bozza, da riapprovare")
     return 0
 
 
@@ -730,9 +862,9 @@ def importa(f, dest):
     return 0
 
 
-def nuova_sess(sid, domanda):
+def nuova_camp(sid, domanda):
     return {"id": sid, "creata": ora(), "stato": "bozza", "domanda": domanda, "consegna": {"link": "", "versione": ""},
-            "esterno": None, "scena": None, "secondari": [], "campagne": [], "regole": [], "fuori_storia": [],
+            "esterno": None, "scena": None, "secondari": [], "storie": [], "regole": [], "fuori_storia": [],
             "si_puo_dire": [], "controlli": {}, "mazzo": [], "seme": 1, "giri": [], "confronto": None,
             # previsti, non costruiti: si attivano dopo la decisione dell'autore
             "riservato": {"saga": None, "bivi": None, "taratura": None, "copilota": None}}
@@ -760,16 +892,25 @@ def main(a):
         print(__doc__); return 2
     pos, o = opzioni(a)
     cmd = pos[0]
+    if cmd == "argomento":
+        if pos[1] == "nuovo":
+            return argomento_nuovo(pos[2], o.get("titolo"))
+        if pos[1] == "stato":
+            return argomento_stato(pos[2])
+    if cmd == "analisi":
+        return analisi(pos[1])
     if cmd == "nuova":
         s = pos[1]
-        if os.path.exists(sess_file(s)):
+        if os.path.exists(camp_file(s)):
             sys.exit(f"esiste già: {s}")
-        S = nuova_sess(os.path.basename(os.path.abspath(s)), o.get("domanda", ""))
+        if not argomento_di(s):
+            print("avviso: campagna fuori da un argomento (campagne.py argomento nuovo DIR): la memoria starà accanto")
+        S = nuova_camp(os.path.basename(os.path.abspath(s)), o.get("domanda", ""))
         S["consegna"] = {"link": o.get("consegna", ""), "versione": o.get("versione", "")}
-        scrivi(sess_file(s), S); print(f"sessione {s}"); return 0
+        scrivi(camp_file(s), S); print(f"campagna {s}"); return 0
     if cmd in ("stato", "verifica", "imposta", "protagonista", "evento", "controllo", "controlli", "genera",
                "applica", "prepara", "quadro", "memoria"):
-        s = pos[1]; S = carica_sess(s)
+        s = pos[1]; S = carica_camp(s)
     if cmd == "imposta":
         k, v = pos[2], pos[3]
         if k in ("riservato", "id", "giri"):
@@ -784,41 +925,41 @@ def main(a):
             S[k] = {"tipo": "versioni", "consegne": [{"versione": x.split("=")[0], "link": x.split("=", 1)[1]} for x in v.split("|")]}
         else:
             S[k] = v
-        scrivi(sess_file(s), S); print(f"{k} impostato"); return 0
+        scrivi(camp_file(s), S); print(f"{k} impostato"); return 0
     if cmd == "protagonista":
         camp, sid = pos[2], pos[3]
-        if any(c["campagna"] == camp for c in S["campagne"]):
-            sys.exit(f"campagna già presente: {camp}")
-        S["campagne"].append({"campagna": camp, "scheda": sid, "variante": o.get("variante"), "controlli": {}})
-        scrivi(sess_file(s), S); print(f"campagna {camp} → {sid}"); return 0
+        if any(c["storia"] == camp for c in S["storie"]):
+            sys.exit(f"storia già presente: {camp}")
+        S["storie"].append({"storia": camp, "scheda": sid, "variante": o.get("variante"), "controlli": {}})
+        scrivi(camp_file(s), S); print(f"storia {camp} → {sid}"); return 0
     if cmd == "evento":
         S["mazzo"] = [e for e in S["mazzo"] if e["id"] != pos[2]] + [
             {"id": pos[2], "testo": pos[3], "peso": float(o.get("peso", 1)), "dal_turno": int(o.get("dal-turno", 1))}]
-        scrivi(sess_file(s), S); print(f"evento {pos[2]} nel mazzo ({len(S['mazzo'])})"); return 0
+        scrivi(camp_file(s), S); print(f"evento {pos[2]} nel mazzo ({len(S['mazzo'])})"); return 0
     if cmd == "controllo":
         k, v = pos[2], pos[3]
         if k not in CONTROLLI:
             sys.exit(f"controllo sconosciuto: {k} (noti: {', '.join(CONTROLLI)})")
         x = {"valore": converti(k, v), "bloccato": bool(o.get("blocca"))}
-        if o.get("campagna"):
-            c = next((c for c in S["campagne"] if c["campagna"] == o["campagna"]), None)
+        if o.get("storia"):
+            c = next((c for c in S["storie"] if c["storia"] == o["storia"]), None)
             if c is None:
-                sys.exit("campagna non trovata")
+                sys.exit("storia non trovata")
             c.setdefault("controlli", {})[k] = x
         else:
             S["controlli"][k] = x
-        scrivi(sess_file(s), S)
-        r = risolvi_controlli(o, S, o.get("campagna"))[k]
-        print(f"{k} = {r[0]!r} (vince: {r[1]})" + (" — bloccato più in alto, il tuo valore non vale" if r[1] != ("campagna" if o.get("campagna") else "sessione") else ""))
+        scrivi(camp_file(s), S)
+        r = risolvi_controlli(o, S, o.get("storia"))[k]
+        print(f"{k} = {r[0]!r} (vince: {r[1]})" + (" — bloccato più in alto, il tuo valore non vale" if r[1] != ("storia" if o.get("storia") else "campagna") else ""))
         return 0
     if cmd == "controlli":
-        for k, (v, liv, bl) in risolvi_controlli(o, S, o.get("campagna")).items():
+        for k, (v, liv, bl) in risolvi_controlli(o, S, o.get("storia")).items():
             print(f"{k:24} {v!r:14} {liv}{' (bloccato)' if bl else ''} · agisce: {CONTROLLI[k][1]}")
         return 0
     if cmd in ("stato", "verifica"):
         b, av = verifica(o, S, s)
         if cmd == "stato":
-            print(f"sessione {S['id']} · {S['stato']} · campagne {len(S['campagne'])} · giri {len(S.get('giri', []))}")
+            print(f"campagna {S['id']} · {S['stato']} · storie {len(S['storie'])} · giri {len(S.get('giri', []))}")
             for sid in sorted(os.listdir(os.path.join(s, "schede"))) if os.path.isdir(os.path.join(s, "schede")) else []:
                 sc = carica_scheda(s, sid)
                 print(f"  {sid:20} {sc['tipo']:12} v{sc['versione']} {sc['stato']}" + (f" · giocata in {sc['giocata_in']}" if sc["giocata_in"] else ""))
@@ -855,12 +996,12 @@ def main(a):
             else:
                 sc = nuova_scheda(tipo, sid)
             salva_scheda(s, sc)
-            S = carica_sess(s)
+            S = carica_camp(s)
             if sc["tipo"] in ("esterno", "scena"):
                 S[sc["tipo"]] = sid
             elif sc["tipo"] == "secondario" and sid not in S["secondari"]:
                 S["secondari"].append(sid)
-            scrivi(sess_file(s), S)
+            scrivi(camp_file(s), S)
             print(f"scheda {sid} ({sc['tipo']}) v1 bozza" + (f", dal profilo {o['profilo']}" if o.get("profilo") else ""))
             return 0
         sid = pos[3]
