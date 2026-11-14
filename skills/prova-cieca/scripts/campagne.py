@@ -384,7 +384,7 @@ def esito_vero(arg, o):
     n = max([e["n"] for e in E["esiti"]] or [0]) + 1
     E["esiti"].append({"n": n, "quando": quando, "chi": o["chi"], "come": o.get("come", ""), "canale": o.get("canale", ""),
                        "esito": esito, "motivo": o.get("motivo", ""), "versione": o.get("versione", ""),
-                       "campagna": o.get("campagna", ""), "registrato": ora()})
+                       "campagna": o.get("campagna", ""), "registrato": time.strftime("%Y-%m")})  # solo il mese: anonimato
     scrivi(esiti_file(arg), E)
     print(f"esito vero n. {n} salvato in {esiti_file(arg)} (solo locale)" + (" — usa --come per confrontarlo con le storie" if not o.get("come") else ""))
     return 0

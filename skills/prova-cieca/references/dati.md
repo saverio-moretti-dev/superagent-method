@@ -103,7 +103,7 @@ campagne.py esito-vero ARG --esito LASCIA --chi "titolare di forno, 60 anni, poc
 ```json
 {"esiti": [{"n": 1, "quando": "2026-11", "chi": "titolare di forno, 60 anni, poco digitale", "come": "titolare-diffidente",
   "canale": "passaparola", "esito": "LASCIA", "motivo": "prezzo troppo alto per lui", "versione": "", "campagna": "",
-  "registrato": "…"}]}
+  "registrato": "2026-11"}]}
 ```
 - **Anonimo**: `chi` è un tipo di persona, mai un nome; `quando` solo il mese. Il comando rifiuta email, indirizzi web,
   profili social, numeri lunghi e possibili nomi e cognomi (`--controllato` solo per un falso allarme verificato).
