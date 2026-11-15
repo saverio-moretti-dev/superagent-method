@@ -518,6 +518,30 @@ def riavviato_dopo(nome, tty, t0):
     return next((l.strip() for l in reversed(righe) if chiave in l and l[:19] >= dal), None)
 
 
+def riavviato_prima(nome, tty, t0):
+    """Riavvio già fatto POCO PRIMA del lancio (15/11 SPLICE: la guardia riavvia alle 18:57:28, il riavvia.py del
+    coordinatore parte alle 19:00:20 e aspetta 3 min una nota che non arriverà). Vero se: NOME.md assente, riga
+    RIAVVIATO NOME su quel tty negli ultimi NOTA_MAX_S prima del lancio, e la sessione ora su quel tty è quella nuova
+    di quella riga. → motivo GIA_FATTO o None."""
+    if os.path.exists(os.path.join(PASSAGGI, f"{nome}.md")):
+        return None
+    dal = datetime.datetime.fromtimestamp(t0 - NOTA_MAX_S).strftime("%Y-%m-%d %H:%M:%S")
+    chiave = f" RIAVVIATO {nome} {tty_corto(tty)}:"
+    try:
+        with open(LOG, encoding="utf-8", errors="replace") as f:
+            righe = f.readlines()[-3000:]
+    except OSError:
+        return None
+    riga = next((l.strip() for l in reversed(righe) if chiave in l), None)
+    if not riga or riga[:19] < dal or "→ " not in riga:
+        return None
+    nuovo = riga.split("→ ", 1)[1][:8]
+    sid = sid_su(nome, tty)
+    if not (sid and len(nuovo) == 8 and sid.startswith(nuovo)):
+        return None
+    return f"{GIA_FATTO} prima del lancio ({riga[:19]}, sessione {nuovo} su {tty_corto(tty)}, nota {nome}.md già letta)"
+
+
 def avvio_pid(pid):
     """Epoca di partenza del processo (None se non si sa). Orologio vero: confrontata solo con t0 vero."""
     try:
@@ -823,7 +847,7 @@ def main(a):
             prima = tipo
         if not motivo:
             break
-        oltre = attendi and superato(nome, tty, sid0, t0)
+        oltre = riavviato_prima(nome, tty, t0) or (attendi and superato(nome, tty, sid0, t0))
         if oltre:
             registra(f"SUPERATO {nome} {tty_corto(tty)}: {oltre}")
             esci(f"{'RIAVVIO GIÀ FATTO' if oltre.startswith(GIA_FATTO) else 'NIENTE RIAVVIO'} di {nome}: {oltre}", 3)

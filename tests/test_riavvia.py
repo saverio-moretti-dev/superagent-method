@@ -292,6 +292,44 @@ class Attesa(Base):
         self.assertEqual(self._sessione_cambia(letta), 3)
         self.assertIn("riavvio già fatto", self.log())
 
+    # 15/11 SPLICE (Dottore, lavoro 4): riavvio fatto dalla guardia POCO PRIMA del lancio → uscita 3 subito
+    def _riavviato_fa(self, fa_s, verso=None):
+        self.ora.t -= fa_s
+        self.r.registra(f"RIAVVIATO PROVA-A {self.r.tty_corto(TTY)}: verificato (sessione 0aaaaaaa → {(verso or SID)[:8]}, /riparti partito)")
+        self.ora.t += fa_s
+        self.stato = "idle"
+        self.trascrivi(FINE)
+        self.nota(fa_s=200, nome="PROVA-A", letta=True)
+
+    def test_16f_riavviato_prima_del_lancio_esce_subito(self):
+        self._riavviato_fa(170)
+        lancio = self.ora.t
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x", "--attendi", "3"), 3)
+        self.assertEqual(self.inviati, [])
+        self.assertLess(self.ora.t - lancio, 15)
+        self.assertIn("riavvio già fatto prima del lancio", self.log())
+
+    def test_16g_riavviato_prima_anche_senza_attendi(self):
+        self._riavviato_fa(60)
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 3)
+        self.assertEqual(self.inviati, [])
+
+    def test_16h_riavvio_vecchio_non_conta(self):
+        self._riavviato_fa(11 * 60)
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 2)
+        self.assertIn("assente", self.log())
+
+    def test_16i_altra_sessione_sul_tty_non_conta(self):
+        self._riavviato_fa(60, verso="99999999-0000")
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 2)
+        self.assertNotIn("già fatto", self.log())
+
+    def test_16j_nota_nuova_non_gia_fatto(self):
+        self._riavviato_fa(60)
+        self.assertIsNotNone(self.r.riavviato_prima("PROVA-A", TTY, self.ora.t))
+        self.nota(fa_s=10, nome="PROVA-A")  # l'agente ha scritto un'altra nota: si riavvia davvero (non «già fatto»)
+        self.assertIsNone(self.r.riavviato_prima("PROVA-A", TTY, self.ora.t))
+
     def test_17_doppia_attesa(self):
         vero = carica(self.home)  # g_altri vera, con ps finto
         ps = "  1 /sbin/launchd\n 777 python3 /x/riavvia.py SUPERAGENTE /dev/ttys002 --sup --attendi 15\n"
