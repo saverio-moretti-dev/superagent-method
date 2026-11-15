@@ -620,6 +620,36 @@ class Agente(Base):
         self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 0)
         self.assertNotIn("--model", self.cd_inviato())
 
+    # SUP 15/11: --model da riga di comando per qualunque agente (non solo PROVA-)
+    def test_39e_opzione_model_agente_qualunque(self):
+        haiku = {"type": "assistant", "message": {"model": "claude-haiku-5-5", "content": []}}
+        self.trascrivi([haiku] + FINE, fa_s=60)
+        self.scrivi_agente(True)
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x", "--model", "sonnet"), 0)
+        self.assertIn("--model sonnet ", self.cd_inviato())
+        self.assertNotIn("haiku", self.cd_inviato())
+        self.assertIn("scelto da riga di comando", self.log())
+
+    def test_39f_opzione_model_vince_su_extra(self):
+        self.scrivi_agente(True)
+        with mock.patch.dict(os.environ, {"RIAVVIA_EXTRA": "--settings s.json --model haiku"}):
+            self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x", "--model", "claude-sonnet-5-5"), 0)
+        cd = self.cd_inviato()
+        self.assertIn("--settings s.json --model claude-sonnet-5-5 ", cd)
+        self.assertNotIn("haiku", cd)
+        self.assertEqual(cd.count("--model"), 1)
+
+    def test_39g_opzione_model_non_valida(self):
+        self.scrivi_agente(True)
+        for m in (["--model", "x; rm -rf ~"], ["--model"], ["--model", "--prova"]):
+            self.inviati.clear()
+            self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x", *m), 1)
+            self.assertEqual(self.inviati, [])
+
+    def test_39h_opzione_model_con_sup_rifiutata(self):
+        self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup", "--model", "sonnet"), 1)
+        self.assertEqual(self.inviati, [])
+
 
 
 class Muto(Base):

@@ -11,6 +11,8 @@ Uso:
   opzioni:  --attendi MIN   aspetta fino a MIN minuti che le guardie siano verdi (al posto dei vecchi «until … sleep»)
             --prova         controlla e dice cosa farebbe, senza scrivere niente nella scheda
             --senza-ferma   niente passo h (TaskStop/CronDelete prima del riavvio)
+            --model M       (solo agente) rilancia con questo modello (es. sonnet, claude-sonnet-5-5) al posto di quello
+                            della sessione vecchia; senza, il modello letto dalla trascrizione (se no il predefinito)
 
 Guardie (tutte, ricontrollate subito prima di ogni invio):
   a. la nota ~/.claude/passaggi/NOME.md esiste ed è stata scritta al più 10 minuti prima del LANCIO dello script
@@ -204,6 +206,22 @@ def stato_voci(voci, dopo_clear=False):
 def trascrizione(sid):
     f = glob.glob(os.path.join(CASA, ".claude", "projects", "*", f"{sid}.jsonl")) if sid else []
     return f[0] if f else None
+
+
+def _senza_model(extra):
+    """extra senza la coppia «--model X» (la riga di comando vince su RIAVVIA_EXTRA)."""
+    p, out = extra.split(), []
+    i = 0
+    while i < len(p):
+        if p[i] == "--model":
+            i += 2
+            continue
+        if p[i].startswith("--model="):
+            i += 1
+            continue
+        out.append(p[i])
+        i += 1
+    return " ".join(out)
 
 
 def modello_di(sid):
@@ -732,6 +750,15 @@ def main(a):
         i = a.index("--attendi")
         attendi = float(a[i + 1])
         del a[i:i + 2]
+    modello = None
+    if "--model" in a:
+        i = a.index("--model")
+        modello = a[i + 1] if i + 1 < len(a) else ""
+        del a[i:i + 2]
+        if not modello or modello.startswith("-") or not all(c.isalnum() or c in "-._" for c in modello):
+            esci(f"--model: nome di modello non valido ({modello!r})", 1)
+        if sup:
+            esci("--model non vale con --sup (il SUP fa /clear e resta sullo stesso modello)", 1)
     a = [x for x in a if x not in ("--prova", "--sup", "--senza-ferma")]
     nome, tty = a[0].upper(), a[1]
     cartella = a[2] if len(a) > 2 else None
@@ -764,7 +791,7 @@ def main(a):
     if not prova:
         blocca(tty, nome)
     try:
-        esegui(nome, tty, cartella, sup, prova, ferma)
+        esegui(nome, tty, cartella, sup, prova, ferma, modello)
     except TerminalMuto as e:
         registra(f"FALLITO {nome} {tty_corto(tty)}: {e}")
         esci(f"RIAVVIO NON FATTO di {nome}: {e}. Riprova più tardi (blocco tolto se niente era stato scritto)", 7)
@@ -837,7 +864,7 @@ def chiudi_doppioni(nome, tty):
     return ("doppioni ancora vivi dopo la chiusura: " + ", ".join(str(x["pid"]) for x in vivi)) if vivi else None
 
 
-def esegui(nome, tty, cartella, sup, prova, ferma=True):
+def esegui(nome, tty, cartella, sup, prova, ferma=True, modello=None):
     if ferma:
         m = ferma_tutto(nome, tty, prova, sup)
         if m:
@@ -919,8 +946,11 @@ def esegui(nome, tty, cartella, sup, prova, ferma=True):
         esci(f"{nome} ancora viva dopo /exit: guarda la scheda {tty_corto(tty)}", 2)
     q = cartella.replace("'", "'\\''")
     t_invio = time.time()
-    extra = os.environ.get("RIAVVIA_EXTRA", "") if nome.startswith("PROVA-") else ""  # prove: --model, --settings
-    if "--model" not in extra:
+    extra = os.environ.get("RIAVVIA_EXTRA", "") if nome.startswith("PROVA-") else ""  # solo prove (--settings); --model vero: opzione
+    if modello:
+        extra = " ".join(x for x in [_senza_model(extra), f"--model {modello}"] if x)
+        registra(f"MODELLO {nome} {tty_corto(tty)}: --model {modello} (scelto da riga di comando)")
+    elif "--model" not in extra:
         mod = modello_di(sid0)
         if mod:
             extra = (extra + " " if extra else "") + f"--model {mod}"
