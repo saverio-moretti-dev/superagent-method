@@ -67,7 +67,7 @@ Variabili d'ambiente (solo per le prove; senza, valori normali):
   RIAVVIA_PROVA=1         consente --sup su una sessione di prova il cui nome comincia per PROVA-
                           (manda «/riparti <nome in minuscolo>», come «/riparti superagente» per il SUP)
 """
-import glob, json, os, subprocess, sys, time
+import datetime, glob, json, os, subprocess, sys, time
 
 CASA = os.path.expanduser("~")
 SCRITTO = False   # True appena un `do script` è arrivato alla scheda: da lì il blocco del tty resta
@@ -445,16 +445,60 @@ def sid_su(nome, tty):
     return next((x.get("sessionId") for x in s if tty_di(x["pid"]) == tty_corto(tty)), None)
 
 
+GIA_FATTO = "riavvio già fatto"
+
+
+def riavviato_dopo(nome, tty, t0):
+    """Ultima riga RIAVVIATO di NOME su quel tty scritta in riavvii.log dopo t0 (un altro riavvia.py ha già riavviato)."""
+    dal = datetime.datetime.fromtimestamp(t0).strftime("%Y-%m-%d %H:%M:%S")  # datetime: time può essere finto nei test
+    chiave = f" RIAVVIATO {nome} {tty_corto(tty)}:"
+    try:
+        with open(LOG, encoding="utf-8", errors="replace") as f:
+            righe = f.readlines()[-3000:]
+    except OSError:
+        return None
+    return next((l.strip() for l in reversed(righe) if chiave in l and l[:19] >= dal), None)
+
+
+def avvio_pid(pid):
+    """Epoca di partenza del processo (None se non si sa). Orologio vero: confrontata solo con t0 vero."""
+    try:
+        e = subprocess.run(["ps", "-o", "etime=", "-p", str(pid)], capture_output=True, text=True, timeout=5).stdout.strip()
+    except (subprocess.SubprocessError, OSError):
+        return None
+    if not e:
+        return None
+    giorni, _, resto = e.rpartition("-")
+    s = 0
+    for x in resto.split(":"):
+        s = s * 60 + int(x)
+    return datetime.datetime.now().timestamp() - s - int(giorni or 0) * 86400
+
+
 def superato(nome, tty, sid0, t0):
     """L'attesa non serve più: la nota è già stata letta da un /riparti dopo la partenza (NOME.letta.md più nuova)
-    o su quel tty gira un'altra sessione NOME. Senza, un'attesa vecchia resta viva fino alla scadenza."""
+    o su quel tty gira una sessione NOME diversa da quella di partenza. Senza, un'attesa vecchia resta viva fino alla
+    scadenza. Sessione diversa (15/11): se dopo t0 c'è un RIAVVIATO nel log, la nota letta o un processo partito dopo
+    t0 è lo stesso agente riavviato (da un altro riavvia.py o da sé) → GIA_FATTO; altrimenti è un'altra sessione.
+    Prima diceva sempre «altra sessione»: falso «NIENTE RIAVVIO» con due riavvia.py sulla stessa scheda."""
     letta = os.path.join(PASSAGGI, f"{nome}.letta.md")
-    if not os.path.exists(os.path.join(PASSAGGI, f"{nome}.md")) and os.path.exists(letta) and os.path.getmtime(letta) > t0:
-        return f"nota {nome}.md già letta dopo la partenza (riavvio fatto da altri)"
-    sid = sid_su(nome, tty)
-    if sid0 and sid and sid != sid0:
-        return f"su {tty_corto(tty)} gira già un'altra sessione {nome}"
-    return None
+    letta_dopo = os.path.exists(letta) and os.path.getmtime(letta) > t0
+    if not os.path.exists(os.path.join(PASSAGGI, f"{nome}.md")) and letta_dopo:
+        return f"{GIA_FATTO}: nota {nome}.md letta dopo la partenza"
+    s = sessione(nome)
+    x = None if isinstance(s, Exception) else next((y for y in s if tty_di(y["pid"]) == tty_corto(tty)), None)
+    sid = x and x.get("sessionId")
+    if not (sid0 and sid and sid != sid0):
+        return None
+    riga = riavviato_dopo(nome, tty, t0)
+    if riga:
+        return f"{GIA_FATTO} da un altro riavvio ({riga[20:][:120]})"
+    if letta_dopo:
+        return f"{GIA_FATTO}: sessione nuova {sid[:8]} e nota {nome}.letta.md dopo la partenza"
+    avvio = avvio_pid(x["pid"])
+    if avvio is not None and avvio > t0:
+        return f"{GIA_FATTO}: sessione {nome} ripartita dopo la partenza (pid {x['pid']}, sessione {sid[:8]})"
+    return f"su {tty_corto(tty)} gira già un'altra sessione {nome} ({sid[:8]}, nessun riavvio dopo la partenza)"
 
 
 def guardie(nome, tty, *, nota=True, t0=None, uscita=False):
@@ -711,7 +755,7 @@ def main(a):
         oltre = attendi and superato(nome, tty, sid0, t0)
         if oltre:
             registra(f"SUPERATO {nome} {tty_corto(tty)}: {oltre}")
-            esci(f"NIENTE RIAVVIO di {nome}: {oltre}", 3)
+            esci(f"{'RIAVVIO GIÀ FATTO' if oltre.startswith(GIA_FATTO) else 'NIENTE RIAVVIO'} di {nome}: {oltre}", 3)
         if time.time() >= fine:
             registra(f"RIFIUTATO {nome} {tty_corto(tty)}: {motivo}")
             esci(f"NIENTE RIAVVIO di {nome}: {motivo}", 2)

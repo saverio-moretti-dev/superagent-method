@@ -243,12 +243,54 @@ class Attesa(Base):
     def test_16_altra_sessione_sul_tty_superato(self):
         self.nota(fa_s=60)
         self.trascrivi(TOOL_APERTO)
+        self.r.avvio_pid = lambda pid: self.ora.t - 3600  # processo partito prima: sessione estranea
 
         def gancio(o):
             self.sid = "99999999-0000-0000-0000-000000000000"
         self.ora.gancio = gancio
         self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup", "--attendi", "15"), 3)
         self.assertEqual(self.inviati, [])
+        self.assertIn("altra sessione SUPERAGENTE", self.log())
+        self.assertNotIn("già fatto", self.log())
+
+    def _sessione_cambia(self, effetto):
+        """15/11: un altro riavvia.py (o la sessione stessa) riavvia durante l'attesa → sessionId nuovo."""
+        self.nota(fa_s=60)
+        self.trascrivi(TOOL_APERTO)
+        self.r.avvio_pid = lambda pid: self.ora.t - 3600
+        lancio = self.ora.t
+
+        def gancio(o):
+            if o.t - lancio >= 30 and self.sid == SID:
+                self.sid = "e23f57dd-0000-0000-0000-000000000000"
+                effetto()
+        self.ora.gancio = gancio
+        return self.lancia("SUPERAGENTE", TTY, "--sup", "--attendi", "15")
+
+    def test_16b_riavviato_da_altro_riavvia_gia_fatto(self):
+        rc = self._sessione_cambia(lambda: self.r.registra(f"RIAVVIATO SUPERAGENTE {self.r.tty_corto(TTY)}: verificato (prova)"))
+        self.assertEqual(rc, 3)
+        self.assertEqual(self.inviati, [])
+        self.assertIn("SUPERATO SUPERAGENTE ttys002: riavvio già fatto da un altro riavvio", self.log())
+        self.assertNotIn("altra sessione", self.log())
+
+    def test_16c_riavviato_vecchio_nel_log_non_conta(self):
+        self.r.registra(f"RIAVVIATO SUPERAGENTE {self.r.tty_corto(TTY)}: verificato (ieri)")  # prima della partenza
+        self.ora.t += 5
+        self.assertEqual(self._sessione_cambia(lambda: None), 3)
+        self.assertIn("altra sessione", self.log())
+
+    def test_16d_processo_nuovo_gia_fatto(self):
+        def nuovo():
+            self.r.avvio_pid = lambda pid: self.ora.t - 1
+        self.assertEqual(self._sessione_cambia(nuovo), 3)
+        self.assertIn("riavvio già fatto: sessione SUPERAGENTE ripartita", self.log())
+
+    def test_16e_nota_letta_ma_nuova_nota_gia_fatto(self):
+        def letta():
+            self.nota(fa_s=0, letta=True)  # /riparti ha letto; la NOME.md vecchia resta (riscritta subito dopo)
+        self.assertEqual(self._sessione_cambia(letta), 3)
+        self.assertIn("riavvio già fatto", self.log())
 
     def test_17_doppia_attesa(self):
         vero = carica(self.home)  # g_altri vera, con ps finto
