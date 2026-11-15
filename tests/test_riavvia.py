@@ -646,6 +646,63 @@ class Agente(Base):
             self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x", *m), 1)
             self.assertEqual(self.inviati, [])
 
+    # SUP 15/11 lavoro 3: preferenza persistente NOME.modello (la guardia rilanciava su opus dalla trascrizione)
+    def pref(self, nome="PROVA-A"):
+        return os.path.join(self.r.PASSAGGI, f"{nome}.modello")
+
+    def test_39i_model_fissa_preferenza(self):
+        haiku = {"type": "assistant", "message": {"model": "claude-haiku-5-5", "content": []}}
+        self.trascrivi([haiku] + FINE, fa_s=60)
+        self.scrivi_agente(True)
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x", "--model", "sonnet"), 0)
+        with open(self.pref()) as h:
+            self.assertEqual(h.read(), "sonnet\n")
+        self.assertEqual(self.r.preferenza("PROVA-A"), "sonnet")  # il riavvio dopo senza --model: test_39j
+        self.assertIn("preferenza fissata sonnet", self.log())
+
+    def test_39j_preferenza_vince_su_trascrizione(self):
+        haiku = {"type": "assistant", "message": {"model": "claude-haiku-5-5", "content": []}}
+        self.trascrivi([haiku] + FINE, fa_s=60)
+        os.makedirs(self.r.PASSAGGI, exist_ok=True)
+        with open(self.pref(), "w") as h:
+            h.write("sonnet\n")
+        self.scrivi_agente(True)
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 0)
+        self.assertIn("--model sonnet ", self.cd_inviato())
+        self.assertNotIn("haiku", self.cd_inviato())
+        self.assertIn("(preferenza NOME.modello)", self.log())
+
+    def test_39k_preferenza_non_valida_ignorata(self):
+        haiku = {"type": "assistant", "message": {"model": "claude-haiku-5-5", "content": []}}
+        self.trascrivi([haiku] + FINE, fa_s=60)
+        os.makedirs(self.r.PASSAGGI, exist_ok=True)
+        with open(self.pref(), "w") as h:
+            h.write("x; rm -rf ~\n")
+        self.scrivi_agente(True)
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 0)
+        self.assertIn("--model claude-haiku-5-5 ", self.cd_inviato())
+        self.assertIn("non valido", self.log())
+
+    def test_39l_model_auto_toglie_preferenza(self):
+        haiku = {"type": "assistant", "message": {"model": "claude-haiku-5-5", "content": []}}
+        self.trascrivi([haiku] + FINE, fa_s=60)
+        os.makedirs(self.r.PASSAGGI, exist_ok=True)
+        with open(self.pref(), "w") as h:
+            h.write("sonnet\n")
+        self.scrivi_agente(True)
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x", "--model", "auto"), 0)
+        self.assertFalse(os.path.exists(self.pref()))
+        self.assertIn("--model claude-haiku-5-5 ", self.cd_inviato())
+
+    def test_39m_prova_non_scrive_preferenza(self):
+        self.scrivi_agente(True)
+        self.lancia("PROVA-A", TTY, "/tmp/x", "--model", "sonnet", "--prova")
+        self.assertFalse(os.path.exists(self.pref()))
+
+    def test_39n_model_non_valido_non_scrive(self):
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x", "--model", "a b"), 1)
+        self.assertFalse(os.path.exists(self.pref()))
+
     def test_39h_opzione_model_con_sup_rifiutata(self):
         self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup", "--model", "sonnet"), 1)
         self.assertEqual(self.inviati, [])

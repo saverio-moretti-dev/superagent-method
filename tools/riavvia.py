@@ -11,8 +11,10 @@ Uso:
   opzioni:  --attendi MIN   aspetta fino a MIN minuti che le guardie siano verdi (al posto dei vecchi «until … sleep»)
             --prova         controlla e dice cosa farebbe, senza scrivere niente nella scheda
             --senza-ferma   niente passo h (TaskStop/CronDelete prima del riavvio)
-            --model M       (solo agente) rilancia con questo modello (es. sonnet, claude-sonnet-5-5) al posto di quello
-                            della sessione vecchia; senza, il modello letto dalla trascrizione (se no il predefinito)
+            --model M       (solo agente) rilancia con questo modello (es. sonnet, claude-sonnet-5-5) e lo FISSA:
+                            scrive ~/.claude/passaggi/NOME.modello, che vale per ogni riavvio dopo (anche della guardia)
+            --model auto    toglie NOME.modello: si torna al modello letto dalla trascrizione
+  Modello al rilancio: --model > NOME.modello (letto al momento dell'invio) > trascrizione > predefinito.
 
 Guardie (tutte, ricontrollate subito prima di ogni invio):
   a. la nota ~/.claude/passaggi/NOME.md esiste ed è stata scritta al più 10 minuti prima del LANCIO dello script
@@ -222,6 +224,44 @@ def _senza_model(extra):
         out.append(p[i])
         i += 1
     return " ".join(out)
+
+
+def valido_modello(m):
+    return bool(m) and not m.startswith("-") and all(c.isalnum() or c in "-._" for c in m)
+
+
+def file_modello(nome):
+    return os.path.join(PASSAGGI, f"{nome}.modello")
+
+
+def preferenza(nome):
+    """Modello fissato per l'agente (NOME.modello, prima riga); None se assente o non valido (SUP 15/11: la guardia
+    rilanciava SPLICE/VINTED su opus dalla trascrizione subito dopo la scelta di sonnet)."""
+    try:
+        with open(file_modello(nome)) as h:
+            m = (h.readline() or "").strip()
+    except OSError:
+        return None
+    if valido_modello(m):
+        return m
+    registra(f"MODELLO {nome}: {file_modello(nome)} non valido ({m!r}): ignorato")
+    return None
+
+
+def fissa_preferenza(nome, m):
+    """m = nome del modello → scritto in NOME.modello; m = None → file tolto."""
+    f = file_modello(nome)
+    if m is None:
+        if os.path.exists(f):
+            os.remove(f)
+            registra(f"MODELLO {nome}: preferenza tolta (--model auto)")
+        return
+    os.makedirs(PASSAGGI, exist_ok=True)
+    tmp = f + ".tmp"
+    with open(tmp, "w") as h:
+        h.write(m + "\n")
+    os.replace(tmp, f)
+    registra(f"MODELLO {nome}: preferenza fissata {m} ({f})")
 
 
 def modello_di(sid):
@@ -755,7 +795,7 @@ def main(a):
         i = a.index("--model")
         modello = a[i + 1] if i + 1 < len(a) else ""
         del a[i:i + 2]
-        if not modello or modello.startswith("-") or not all(c.isalnum() or c in "-._" for c in modello):
+        if not valido_modello(modello):
             esci(f"--model: nome di modello non valido ({modello!r})", 1)
         if sup:
             esci("--model non vale con --sup (il SUP fa /clear e resta sullo stesso modello)", 1)
@@ -766,6 +806,10 @@ def main(a):
         esci("manca CARTELLA (per il SUP: --sup)", 1)
     if sup and nome != "SUPERAGENTE" and not (os.environ.get("RIAVVIA_PROVA") == "1" and nome.startswith("PROVA-")):
         esci("--sup solo con SUPERAGENTE (o con RIAVVIA_PROVA=1 su una sessione PROVA-…)", 1)
+    if modello and not prova:  # subito, prima dell'attesa: un riavvio della guardia in contemporanea la legge già
+        fissa_preferenza(nome, None if modello == "auto" else modello)
+    if modello == "auto":
+        modello = None
 
     t0 = time.time()
     fine = t0 + attendi * 60
@@ -947,9 +991,11 @@ def esegui(nome, tty, cartella, sup, prova, ferma=True, modello=None):
     q = cartella.replace("'", "'\\''")
     t_invio = time.time()
     extra = os.environ.get("RIAVVIA_EXTRA", "") if nome.startswith("PROVA-") else ""  # solo prove (--settings); --model vero: opzione
+    fonte = "scelto da riga di comando" if modello else "preferenza NOME.modello"
+    modello = modello or preferenza(nome)
     if modello:
         extra = " ".join(x for x in [_senza_model(extra), f"--model {modello}"] if x)
-        registra(f"MODELLO {nome} {tty_corto(tty)}: --model {modello} (scelto da riga di comando)")
+        registra(f"MODELLO {nome} {tty_corto(tty)}: --model {modello} ({fonte})")
     elif "--model" not in extra:
         mod = modello_di(sid0)
         if mod:
