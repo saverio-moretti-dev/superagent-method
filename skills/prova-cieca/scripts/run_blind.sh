@@ -11,11 +11,13 @@
 # con la nota del tetto. --max-turns resta passato alla CLI come rete in più (scatta solo dopo).
 # Messaggi fra sessioni: un claude -p può riceverli come una sessione qualunque. Il sorvegliante chiude il processo al
 # primo evento result; check_blind.py segna SOSPETTO ogni transcript in cui ne è entrato uno.
+# API billing (optional): BLIND_KEYCHAIN_SERVICE, BLIND_COST_LOG, BLIND_BUDGET_USD, BLIND_AGENT — see below.
 # CLI_TURNS=N (solo per le prove del sorvegliante) alza il --max-turns passato alla CLI.
 # Storie (livelli 2-3, storia.py; campagna.py è un alias): SESSIONE=<uuid> apre una sessione che resta salvata, RIPRENDI=<uuid> la riprende
 # (stessi strumenti: --safe-mode + --resume verificato il 12/11/2026), CARTELLA=<dir> usa quella cartella vuota invece di
 # una temporanea e non la cancella (la ripresa vuole la stessa cartella). Senza queste variabili: come sempre.
 set -euo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"  # before cd: when run as ./run_blind.sh, dirname would stay "."
 PROMPT="${1:?prompt file}"; OUT="${2:?output dir}"; MODEL="${3:-sonnet}"; TURNS="${4:-30}"
 [ -f "$PROMPT" ] || { echo "prompt non trovato: $PROMPT" >&2; exit 2; }
 mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd)"; PROMPT="$(cd "$(dirname "$PROMPT")" && pwd)/$(basename "$PROMPT")"
@@ -34,6 +36,17 @@ else
   MCP=(--no-chrome --allowedTools "WebSearch,WebFetch" --disallowedTools "mcp__*")
 fi
 rm -f "$OUT/INTERROTTO"; : > "$OUT/transcript.jsonl"
+# Optional API billing: if BLIND_KEYCHAIN_SERVICE names a macOS Keychain item holding an Anthropic API key, the tester
+# runs with that key (never printed). BLIND_COST_LOG (tsv) gets one line per run; BLIND_BUDGET_USD stops before the run
+# once the log's cost column sums to the budget. Without BLIND_KEYCHAIN_SERVICE: subscription, as before.
+if [ -n "${BLIND_KEYCHAIN_SERVICE:-}" ] && KEY=$(security find-generic-password -s "$BLIND_KEYCHAIN_SERVICE" -w 2>/dev/null); then
+  if [ -n "${BLIND_BUDGET_USD:-}" ] && [ -n "${BLIND_COST_LOG:-}" ]; then
+    spent=$(LC_NUMERIC=C awk -F'\t' 'NR>1{s+=$3} END{printf "%.2f", s+0}' "$BLIND_COST_LOG" 2>/dev/null || echo 0)
+    LC_NUMERIC=C awk -v s="$spent" -v t="$BLIND_BUDGET_USD" 'BEGIN{exit !(s>=t)}' && { echo "API budget of $BLIND_BUDGET_USD \$ reached ($spent \$): stopping" >&2; exit 4; }
+  fi
+  export ANTHROPIC_API_KEY="$KEY"
+fi
+unset KEY
 # ENABLE_CLAUDEAI_MCP_SERVERS=false: connettori claude.ai mai caricati. Oggi --safe-mode li esclude già (8/11/2026:
 # stessi server e stessi token con e senza, web e Chrome); resta come garanzia se --safe-mode cambia.
 ENABLE_CLAUDEAI_MCP_SERVERS=false claude -p --safe-mode \
@@ -76,7 +89,22 @@ RC=0; wait "$CPID" || RC=$?
 # chiuso dal sorvegliante dopo un turno finito (SIGTERM = 143): non è un errore
 if [ "$RC" = 143 ] && [ ! -f "$OUT/INTERROTTO" ] && grep -q '"type": *"result"' "$OUT/transcript.jsonl"; then RC=0; fi
 wait "$WPID" 2>/dev/null || true
-python3 -I "$(dirname "$0")/risposta.py" "$OUT"  # risposta.txt: primo result, o il testo col formato se dopo c'è un'altra azione
+if [ -n "${ANTHROPIC_API_KEY:-}" ]; then  # cost from the first result event of the transcript
+  unset ANTHROPIC_API_KEY
+  # shortcut: if the watchdog kills the tester before its result event, cost is logged as 0 (underestimate); estimate from tokens if that becomes common
+  cost=$(python3 -I -c 'import json,sys
+for l in open(sys.argv[1]):
+    try: e=json.loads(l)
+    except Exception: continue
+    if e.get("type")=="result": print(e.get("total_cost_usd",0)); break
+else: print(0)' "$OUT/transcript.jsonl")
+  if [ -n "${BLIND_COST_LOG:-}" ]; then
+    [ -f "$BLIND_COST_LOG" ] || printf 'date\ttask\tcost_usd\texit\tagent\n' > "$BLIND_COST_LOG"
+    printf '%s\t%s\t%s\t%s\t%s\n' "$(date '+%Y-%m-%d %H:%M')" "blind test $(basename "$OUT")" "$cost" "$RC" "${BLIND_AGENT:-blind}" >> "$BLIND_COST_LOG"
+  fi
+  echo "--- API cost $cost \$" >&2
+fi
+python3 -I "$HERE/risposta.py" "$OUT"  # risposta.txt: primo result, o il testo col formato se dopo c'è un'altra azione
 if [ -f "$OUT/INTERROTTO" ]; then echo "interrotto (tetto $TURNS chiamate a strumenti): $OUT"; exit 3; fi
 [ "$RC" = 0 ] || { echo "claude uscito con codice $RC (es. tetto --max-turns della CLI): $OUT"; exit "$RC"; }
 echo "fatto: $OUT"
