@@ -957,5 +957,75 @@ class Ferma(Base):
     def test_61_testo_ferma_corto(self):
         self.assertLessEqual(len(self.r.TESTO_FERMA), 44)
 
+
+class Freno(Base):
+    """G27 (21/11): 2 riavvii verificati dello stesso nome in 20 min → il 3° rifiutato (uscita 10, riga FRENO)."""
+
+    def riavviato_fa(self, fa_s, nome="PROVA-A", tty="ttys002", esito="verificato (sessione 0aaaaaaa → 0bbbbbbb, /riparti partito)"):
+        self.ora.t -= fa_s
+        self.r.registra(f"RIAVVIATO {nome} {tty}: {esito}")
+        self.ora.t += fa_s
+
+    def pronta(self, nome="PROVA-A"):
+        self.stato = "idle"
+        self.trascrivi(FINE)
+        self.nota(fa_s=60, nome=nome)
+
+    def test_70_terzo_in_20_min_rifiutato(self):
+        self.riavviato_fa(15 * 60)
+        self.riavviato_fa(5 * 60, tty="ttys009")  # altro tty: conta lo stesso (il nome è l'agente)
+        self.pronta()
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 10)
+        self.assertEqual(self.inviati, [])
+        self.assertIn("FRENO PROVA-A ttys002: 2 riavvii verificati negli ultimi 20 min", self.log())
+
+    def test_71_uno_solo_passa(self):
+        self.riavviato_fa(6 * 60)
+        self.pronta()
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x", "--prova"), 0)
+        self.assertNotIn("FRENO", self.log())
+
+    def test_72_fuori_finestra_non_conta(self):
+        self.riavviato_fa(25 * 60)
+        self.riavviato_fa(21 * 60)
+        self.pronta()
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x", "--prova"), 0)
+
+    def test_73_altri_nomi_e_righe_non_verificate_non_contano(self):
+        self.riavviato_fa(60, nome="PROVA-AB")
+        self.riavviato_fa(60, nome="ALTRO")
+        self.riavviato_fa(120, esito="FALLITO (prova)")
+        self.r.registra("SUPERATO PROVA-A ttys002: riavvio già fatto")
+        self.assertIsNone(self.r.g_freno("PROVA-A"))
+
+    def test_74_spento_con_zero(self):
+        self.riavviato_fa(60)
+        self.riavviato_fa(120)
+        self.r.FRENO_N = 0
+        self.assertIsNone(self.r.g_freno("PROVA-A"))
+
+    def test_75_durante_attesa_riavvio_della_guardia(self):
+        self.riavviato_fa(10 * 60)
+        self.nota(fa_s=60, nome="PROVA-A")
+        self.trascrivi(FINE)
+        self.stato = "busy"
+        self.trascrivi(TOOL_APERTO, fa_s=0)
+
+        def gancio(o):  # a metà attesa un altro riavvio verificato su un altro tty, poi la sessione si ferma
+            if o.dormito == 20:
+                self.r.registra("RIAVVIATO PROVA-A ttys009: verificato (sessione 0ccccccc → 0ddddddd, /riparti partito)")
+                self.stato = "idle"
+                self.trascrivi(FINE)
+        self.ora.gancio = gancio
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x", "--attendi", "3"), 10)
+        self.assertEqual(self.inviati, [])
+
+    def test_76_prova_dice_il_freno(self):
+        self.riavviato_fa(60)
+        self.riavviato_fa(120)
+        self.pronta()
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x", "--prova"), 10)
+
+
 if __name__ == "__main__":
     unittest.main()

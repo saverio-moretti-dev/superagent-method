@@ -62,12 +62,20 @@ Riavvio pulito (G1 B4, 13/11; R40, R78, 12/11 01:06: Monitor doppio e doppioni d
   i. dopo /riparti di un agente: altre sessioni con lo stesso nome (o «NOME (2)») su un altro tty = doppioni. Ferma
      (idle) e sola nella finestra → doppia.chiudi; altrimenti uscita 9 con il motivo (il riavvio è comunque fatto).
 
+Freno (G27, 21/11): se NOME ha già FRENO_N riavvii verificati (righe RIAVVIATO NOME …: verificato, qualunque tty)
+negli ultimi FRENO_S secondi, il riavvio è rifiutato: riga FRENO nel log, uscita 10. Un agente che si riavvia di
+continuo ha un guasto (nota che non regge, guardia che scatta in giro): lo guarda il coordinatore, non un altro
+riavvio. Misura sul log 11-21/11: 317 riavvii veri, mai 3 dello stesso nome in 20 min → soglia 2 in 20 min.
+Controllato al lancio e di nuovo subito prima dell'invio (con --attendi un altro riavvio può arrivare nel frattempo).
+
 Variabili d'ambiente (solo per le prove; senza, valori normali):
   RIAVVIA_BLOCCO_S=N      blocco per scheda in secondi (normale 300) — 10 riavvii di fila nelle prove
   RIAVVIA_NOTA_MAX_S=N    età massima della nota in secondi (normale 600)
   RIAVVIA_FERMA_S=N       attesa massima di NOME.pronto in secondi (normale 180)
   RIAVVIA_EXTRA="…"       argomenti in più per claude al rilancio, solo per sessioni PROVA-… (es. --settings);
                           senza --model qui, il modello è quello della sessione vecchia (trascrizione), se no il predefinito
+  RIAVVIA_FRENO_N=N       riavvii verificati già fatti che fanno scattare il freno (normale 2; 0 = freno spento)
+  RIAVVIA_FRENO_S=N       finestra del freno in secondi (normale 1200)
   RIAVVIA_PROVA=1         consente --sup su una sessione di prova il cui nome comincia per PROVA-
                           (manda «/riparti <nome in minuscolo>», come «/riparti superagente» per il SUP)
 """
@@ -100,6 +108,9 @@ Tra poco questa sessione viene riavviata. Prima, senza domande e senza messaggi 
 """
 NOTA_MAX_S = int(os.environ.get("RIAVVIA_NOTA_MAX_S") or 10 * 60)
 BLOCCO_S = int(os.environ.get("RIAVVIA_BLOCCO_S") or 5 * 60)
+_n = os.environ.get("RIAVVIA_FRENO_N")
+FRENO_N = int(_n) if _n not in (None, "") else 2
+FRENO_S = int(os.environ.get("RIAVVIA_FRENO_S") or 20 * 60)
 SVUOTA = "\x0b\x15"          # Ctrl-K + Ctrl-U: cancella a destra e a sinistra del cursore (a inizio/fine riga unisce)
 SEGNO = "QZXRIAVVIO"         # segno scritto dopo lo svuotamento: deve restare da solo nella casella
 ATTESA_OCCUPATA_S = 600      # quanto aspettare che un comando in coda parta, se la sessione lavora
@@ -518,6 +529,31 @@ def riavviato_dopo(nome, tty, t0):
     return next((l.strip() for l in reversed(righe) if chiave in l and l[:19] >= dal), None)
 
 
+def g_freno(nome):
+    """Freno: NOME riavviato (verificato) già FRENO_N volte negli ultimi FRENO_S secondi → motivo, altrimenti None."""
+    if FRENO_N <= 0:
+        return None
+    dal = datetime.datetime.fromtimestamp(time.time() - FRENO_S).strftime("%Y-%m-%d %H:%M:%S")
+    chiave = f" RIAVVIATO {nome} "
+    try:
+        with open(LOG, encoding="utf-8", errors="replace") as f:
+            righe = f.readlines()[-3000:]
+    except OSError:
+        return None
+    fatti = [l[:19] for l in righe if chiave in l and ": verificato" in l and l[:19] >= dal]
+    if len(fatti) < FRENO_N:
+        return None
+    return (f"{len(fatti)} riavvii verificati negli ultimi {FRENO_S // 60} min ({', '.join(x[11:16] for x in fatti)}): "
+            f"qualcosa non va, lo guarda il coordinatore")
+
+
+def frena(nome, tty):
+    m = g_freno(nome)
+    if m:
+        registra(f"FRENO {nome} {tty_corto(tty)}: {m}")
+        esci(f"NIENTE RIAVVIO di {nome} (freno): {m}", 10)
+
+
 def riavviato_prima(nome, tty, t0):
     """Riavvio già fatto POCO PRIMA del lancio (15/11 SPLICE: la guardia riavvia alle 18:57:28, il riavvia.py del
     coordinatore parte alle 19:00:20 e aspetta 3 min una nota che non arriverà). Vero se: NOME.md assente, riga
@@ -835,6 +871,7 @@ def main(a):
     if modello == "auto":
         modello = None
 
+    frena(nome, tty)
     t0 = time.time()
     fine = t0 + attendi * 60
     sid0 = sid_su(nome, tty) if attendi else None
@@ -856,6 +893,8 @@ def main(a):
             esci(f"NIENTE RIAVVIO di {nome}: {motivo}", 2)
         time.sleep(10)
 
+    if attendi:
+        frena(nome, tty)
     if not prova:
         blocca(tty, nome)
     try:
