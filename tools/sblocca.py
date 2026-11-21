@@ -29,7 +29,10 @@ Uso:
 
 Ogni osascript ha un tetto di 10 s (Terminal con molte finestre si è appeso per minuti su un comando solo).
 Stato fra un giro e l'altro: ~/.claude/sblocca/stato.json · log: ~/.claude/sblocca/sblocca.log
-Uscita: 0 nessun blocco o tutto risolto, 1 errore, 2 almeno un blocco non risolto (avvisato).
+Uscita: 0 nessun blocco o tutto risolto (anche: un altro giro è già in corso, si rinuncia in silenzio), 1 errore o tempo
+        massimo superato, 2 almeno un blocco non risolto (avvisato), 3 un altro giro è vivo ma appeso (rinuncia.log).
+Rinuncia (rinuncia.py): un giro alla volta (lock sblocca.lock con età LOCK_ETA_S), tempo massimo TEMPO_MAX_S
+(SBLOCCA_TEMPO_MAX, 0 = nessuno); --prova e --leggi non prendono il lock. Mai kill: scaduto il tempo si ferma il giro.
 """
 import json
 import os
@@ -38,12 +41,18 @@ import subprocess
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # anche se caricato per percorso da altri
+import rinuncia  # noqa: E402
+
 CASA = os.path.expanduser("~")
 DIR = os.environ.get("SBLOCCA_DIR") or os.path.join(CASA, ".claude", "sblocca")
 STATO = os.path.join(DIR, "stato.json")
 LOG = os.path.join(DIR, "sblocca.log")
 TETTO_S = 10
 TENTATIVI_MAX = 2
+LOCK = os.path.join(DIR, "sblocca.lock")
+TEMPO_MAX_S = int(os.environ.get("SBLOCCA_TEMPO_MAX") or 600)  # doppia.py dura al più 280 s per sessione
+LOCK_ETA_S = 900
 QUI = os.path.dirname(os.path.abspath(__file__))
 CLAUDE = os.environ.get("CLAUDE_BIN") or next(
     (p for p in (os.path.join(CASA, ".local", "bin", "claude"), "/opt/homebrew/bin/claude", "/usr/local/bin/claude")
@@ -358,7 +367,22 @@ def main(argv):
         print("\n".join(righe[-40:]))
         print("---\n", classifica(righe, "", a["radici"]))
         return 0
-    return giro(a)
+    if a["prova"]:  # sola lettura: niente lock
+        return giro(a)
+    esito = rinuncia.prendi(LOCK, eta_max=LOCK_ETA_S, nome="sblocca.py")
+    if esito == "viva":
+        return 0  # un altro giro è in corso: si rinuncia in silenzio
+    if esito == "appesa":
+        print("un altro giro di sblocca.py è vivo ma appeso (rinuncia.log): niente giro", file=sys.stderr)
+        return 3
+    try:
+        with rinuncia.tempo_massimo(TEMPO_MAX_S):
+            return giro(a)
+    except rinuncia.TempoScaduto as e:
+        registra(f"SCADUTO: {e}")
+        return 1
+    finally:
+        rinuncia.lascia(LOCK)
 
 
 if __name__ == "__main__":

@@ -155,6 +155,42 @@ class Guardia(unittest.TestCase):
         time.sleep(1.5)
         self.assertEqual(len(self.lanci()), 1)
 
+    # --- G20: lock con età e tempo massimo del riavvio ---
+    def firma(self, nome, eta):
+        os.makedirs(self.stato, exist_ok=True)
+        with open(os.path.join(self.stato, f"riavvio-{nome}.json"), "w") as f:  # pid vivo (questo processo), altra nota
+            json.dump({"nota": "1", "sid": "altra", "pid": os.getpid(), "t": time.time() - eta}, f)
+
+    def test_firma_recente_pid_vivo_non_rilancia(self):
+        self.nota("COORD-T")
+        self.firma("COORD-T", 60)
+        self.hook("Stop", "COORD-T", 160)
+        time.sleep(1.5)
+        self.assertEqual(self.lanci(0.5), [])
+
+    def test_firma_vecchia_pid_vivo_rilancia(self):  # pid riusato o riavvio appeso: non blocca per sempre
+        self.nota("COORD-T")
+        self.firma("COORD-T", 1800 + 200)
+        self.hook("Stop", "COORD-T", 160)
+        self.assertEqual(len(self.lanci()), 1)
+
+    def test_riavvio_appeso_scade(self):
+        with open(self.conf) as f:
+            conf = json.load(f)
+        conf["riavvio_max_s"] = 1
+        with open(self.conf, "w") as f:
+            json.dump(conf, f)
+        self.env["FINTO_SLEEP"] = "10"
+        self.nota("COORD-T")
+        self.hook("Stop", "COORD-T", 160)
+        self.lanci()
+        fine = time.time() + 6
+        while time.time() < fine and "sup riprendi" not in open(self.log).read():
+            time.sleep(0.2)
+        self.assertIn("sup riprendi", open(self.log).read())
+        self.assertFalse(os.path.exists(os.path.join(self.stato, "riavvio-COORD-T.json")), "firma rimasta dopo lo scaduto")
+        self.assertIn("SCADUTO", open(os.path.join(self.stato, "guardia.log")).read())
+
 
 if __name__ == "__main__":
     unittest.main()

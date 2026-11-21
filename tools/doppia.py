@@ -15,7 +15,10 @@ Uso:  doppia.py NOME [--prova] [--apri CMD]... [--avvio TESTO]
       --avvio TESTO  primo messaggio della copia al posto di «/riparti NOME» (prove: una copia di prova che fa /riparti
                      scrive al coordinatore, visto il 13/11)
 Uscita: 0 fatto (una sola sessione, la copia), 2 copia aperta ma la prima resta aperta, 3 NOME non trovato,
-        4 copia non partita (la prima resta), 5 esiste già una copia viva, 1 errore/Terminal muto.
+        4 copia non partita (la prima resta), 5 esiste già una copia viva, 1 errore/Terminal muto o tempo massimo
+        superato, 6 un'altra doppia.py per lo stesso NOME è in corso (lock doppia-NOME-2.lock, rinuncia.py).
+Tempo massimo TEMPO_MAX_S (attesa della copia + 160 s, sotto i 300 s che le dà sblocca.py): scaduto, si ferma lo
+script; mai kill di processi.
 """
 import json
 import os
@@ -24,13 +27,18 @@ import subprocess
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # anche se caricato per percorso da altri
+import rinuncia  # noqa: E402
+
 CASA = os.path.expanduser("~")
 TETTO_S = 10
 CLAUDE = os.environ.get("CLAUDE_BIN") or next(
     (p for p in (os.path.join(CASA, ".local", "bin", "claude"), "/opt/homebrew/bin/claude", "/usr/local/bin/claude")
      if os.path.exists(p)), "claude")
 ATTESA_COPIA_S = int(os.environ.get("DOPPIA_ATTESA_S") or 120)
-LOG = os.path.join(os.environ.get("SBLOCCA_DIR") or os.path.join(CASA, ".claude", "sblocca"), "doppia.log")
+DIR = os.environ.get("SBLOCCA_DIR") or os.path.join(CASA, ".claude", "sblocca")
+LOG = os.path.join(DIR, "doppia.log")
+TEMPO_MAX_S = ATTESA_COPIA_S + 160
 
 
 def registra(msg):
@@ -147,6 +155,26 @@ def main(argv):
         print(f"(prova) aprirei {nome2} in {cartella}: {comando}")
         print(f"(prova) poi chiuderei {nome} (pid {pid}, {tty}) se sola nella sua finestra")
         return 0
+    lock = os.path.join(DIR, f"doppia-{nome2}.lock")
+    esito = rinuncia.prendi(lock, eta_max=TEMPO_MAX_S + 60, nome="doppia.py")
+    if esito != "preso":
+        print(f"un'altra doppia.py per {nome} è in corso ({esito}): nessuna nuova copia")
+        return 6
+    try:
+        with rinuncia.tempo_massimo(TEMPO_MAX_S):
+            if trova(nome2, sessioni()):  # aperta da un'altra doppia.py finita mentre aspettavamo
+                print(f"{nome2} esiste già: nessuna nuova copia")
+                return 5
+            return sostituisci(nome, nome2, pid, cartella, tty, comando, cmd_apri)
+    except rinuncia.TempoScaduto as e:
+        registra(f"{nome}: SCADUTO {e}")
+        print(f"{nome}: {e}")
+        return 1
+    finally:
+        rinuncia.lascia(lock)
+
+
+def sostituisci(nome, nome2, pid, cartella, tty, comando, cmd_apri):
     ok, msg = apri(nome2, cartella, comando, cmd_apri)
     registra(f"{nome} → {nome2}: apertura {'ok' if ok else 'fallita'} {msg!r}")
     fine = time.time() + ATTESA_COPIA_S

@@ -16,7 +16,8 @@ Agenti (soglie 150/200K; G1 B5, 13/11): avviso >=150K, sollecito >=200K; >=200K 
   NOME.md fresca con riga 2 «nome: NOME», nessun lavoro in sottofondo vivo (vivi.py), sessione con tty. Lancia staccato
   riavvia.py NOME TTY CARTELLA --attendi 3 (senza --sup, niente pausa). Il riavvio tocca solo la sessione dell'hook.
 Un solo riavvio per sessione: firma = mtime della nota OPPURE stessa sessione entro firma_s (default 15 min) OPPURE
-  processo di riavvio ancora vivo (riavvio-NOME.pid). riavvia.py uscita 3 (sessione gia' sostituita) = esito buono:
+  processo di riavvio ancora vivo (pid nella firma, solo entro riavvio_max_s + 2 min: oltre = pid riusato o appeso).
+  riavvia.py ha un tempo massimo riavvio_max_s (default 30 min): scaduto = riavvio fallito (uscita 124). riavvia.py uscita 3 (sessione gia' sostituita) = esito buono:
   firma tenuta, niente «riprendi» (13/11 22:38: il FERMA di riavvia.py fa un turno in piu' -> secondo Stop -> doppio lancio).
 
 Spegnimento d'emergenza: esiste il file `off_file` (default ~/.claude/consumo/contesto-guardia.off) oppure
@@ -42,6 +43,7 @@ DEF = {
     "attendi_min": 3,
     "nota_fresca_s": 600,
     "firma_s": 900,
+    "riavvio_max_s": 1800,  # tempo massimo di riavvia.py (il più lungo visto: ~1050 s)
     "vivi": os.path.join(QUI, "vivi.py"),
     "riavvii_log": f"{HOME}/.claude/consumo/riavvii.log",
 }
@@ -268,7 +270,7 @@ def gia_lanciato(c, nome, sid, nota):
     if g.get("sid") == sid and time.time() - g.get("t", 0) < c["firma_s"]:
         return "gia' lanciato per questa sessione"
     pid = g.get("pid")
-    if pid:
+    if pid and time.time() - g.get("t", 0) < c["riavvio_max_s"] + 120:  # oltre: pid riusato o riavvio appeso
         try:
             os.kill(int(pid), 0)
             return f"riavvio ancora in corso (pid {pid})"
@@ -334,8 +336,11 @@ def esegui_riavvio(nome, tty, cartella=None):
     c = cfg()
     t0 = time.time()
     arg = [cartella] if cartella else ["--sup"]
-    r = subprocess.run([sys.executable, c["riavvia"], nome, tty, *arg, "--attendi", str(c["attendi_min"])],
-                       capture_output=True, text=True)
+    try:  # tempo massimo: alla scadenza subprocess ferma solo il suo figlio diretto (riavvia.py), mai una sessione
+        r = subprocess.run([sys.executable, c["riavvia"], nome, tty, *arg, "--attendi", str(c["attendi_min"])],
+                           capture_output=True, text=True, timeout=c["riavvio_max_s"])
+    except subprocess.TimeoutExpired:
+        r = subprocess.CompletedProcess([], 124, "", f"SCADUTO: riavvia.py oltre {c['riavvio_max_s']} s")
     log(c, f"{nome}: riavvia.py rc={r.returncode} in {time.time() - t0:.0f} s: {(r.stdout + r.stderr).strip()[-300:]}")
     if r.returncode == 3:
         log(c, f"{nome}: sessione gia' sostituita (uscita 3): esito buono, firma tenuta")
