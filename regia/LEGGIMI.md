@@ -43,7 +43,9 @@ utente scrive nella casella → `coda.jsonl` (**nuova**) → il SUP con `sup.py 
 `sup.py grigio <id> "esito"` + `sup.py risposta NOME "…" --id <id>` (**risposto**).
 Produzione, cancellazioni, invii esterni: `sup.py conferma <id> "cosa"` e il SUP chiede in chat. L'app non dà permessi.
 
-Sveglia del SUP (consigliata): un Monitor su `tail -n0 -F regia/coda.jsonl`, così ogni riga nuova lo sveglia.
+Sveglia del SUP (consigliata): **un solo** ciclo `until` in Bash in sottofondo (`run_in_background`) che esce alla prima
+riga nuova di `regia/coda.jsonl`; il SUP tratta i messaggi e lo riarma a ogni uscita. Meglio di un Monitor, che scade.
+Prima di lanciarlo, controlla che non ce ne sia già uno vivo (due cicli = messaggi trattati due volte).
 
 ## SUP in riavvio
 Con `pausa.json` (lo scrive `sup.py pausa`) le richieste vanno in `attesa.jsonl` invece che in `coda.jsonl`: il SUP che

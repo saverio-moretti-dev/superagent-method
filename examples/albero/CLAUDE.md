@@ -71,10 +71,17 @@ agenti non tocchino mai le stesse cose. Ogni **agente** lavora su un argomento, 
 
 ## Come si parla all'utente
 - A fine lavoro: **prima sì/no** (è a posto o no), poi il resto, senza gergo.
-- Se serve un comando dell'utente: una riga corta da copiare con `!`, e cosa fa in parole semplici.
-- Un guasto si diagnostica da soli fino alla causa; all'utente si chiede **un** passo mirato.
-- Ogni messaggio del coordinatore finisce con **In sospeso**, diviso per sessione: per ogni voce cos'è, perché conta,
-  il consiglio e cosa rispondere. L'utente non risponde sempre subito: niente deve perdersi.
+- **Un solo canale**: tutto ciò che va all'utente (domande, permessi, esiti) passa dal coordinatore, nella sua chat o
+  nella Regia se si usa. Gli agenti non chiedono all'utente direttamente.
+- **L'utente non lancia comandi**: niente righe da copiare con `!`, niente tasti o finestre di dialogo nel terminale.
+  Una sessione bloccata la sblocca il coordinatore; se serve davvero l'utente (un accesso, una firma) gli si chiede
+  **un** passo, spiegato, sempre dal coordinatore.
+- Un guasto si diagnostica da soli fino alla causa.
+- Ogni messaggio del coordinatore finisce con una riga **In sospeso**: il numero delle voci e solo quelle nuove o
+  cambiate (la lista intera quando l'utente la chiede; vive in `SESSIONI.md`). L'utente non risponde sempre subito:
+  niente deve perdersi.
+- **Domande e attese si spiegano per intero**, soprattutto dopo un riavvio (l'utente non ha i messaggi di prima): cos'è,
+  perché serve, le scelte col consiglio, cosa rispondere. Mai solo un nome o una sigla.
 - Messaggio breve e ambiguo dell'utente → si chiede a cosa si riferisce, non si indovina.
 
 ## Sequenza d'apertura (ogni agente, ogni sessione)

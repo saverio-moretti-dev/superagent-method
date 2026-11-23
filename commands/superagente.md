@@ -17,7 +17,8 @@ Obiettivo: qualità piena col minimo di token. Si legge **ciò che decide**, con
 interi se non serve. Comandi indipendenti nello stesso turno, in parallelo.
 
 ## A. Superagente (sempre)
-1. **Hub**: se è una repo git, `git pull --rebase -q` (mai `--force`) e `git log --oneline -5`.
+1. **Hub**: se è una repo git, `git fetch -q && git rebase -q --autostash origin/main` (mai `--force`; `pull --rebase`
+   fallisce se il rebase tocca più rami) e `git log --oneline -5`.
 2. `CLAUDE.md` della hub: le regole **per titolo**; il corpo si apre solo per la regola che un compito tocca.
 3. **`SESSIONI.md`**: chi lavora su cosa, permessi dati, errori segnalati. Confronta con `claude agents --json`:
    sessione nel registro ma non viva (o viceversa) → segnalalo.

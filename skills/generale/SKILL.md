@@ -11,7 +11,7 @@ argument-hint: "[compito] [cartella-conoscenze]"
 Argomenti: `$ARGUMENTS` = compito + (facoltativo) cartella delle conoscenze (default `./conoscenze/`).
 
 ## Prima di cominciare
-1. **Stima** il costo in % della sessione e della settimana (piano Pro; dati in `~/.claude/consumo/limiti.csv` se esiste) e dichiarala all'utente prima di ogni giro dispendioso; per compiti piccoli basta una riga. Se l'utente ha sospeso i limiti per il progetto, scrivilo e procedi.
+1. **Stima** il costo in % della sessione e della settimana (sul piano dell'utente, es. Max; dati in `~/.claude/consumo/limiti.csv` se esiste) e dichiarala all'utente prima di ogni giro dispendioso; per compiti piccoli basta una riga. Se l'utente ha sospeso i limiti per il progetto, scrivilo e procedi.
 2. Cerca nell'archivio conoscenze se il tema è già stato studiato; si rifà solo ciò che manca o è scaduto.
 3. Un agente per compito. Se più compiti insieme rischiano confusione, **uno per volta**.
 
