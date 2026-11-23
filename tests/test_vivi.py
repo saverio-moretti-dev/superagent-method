@@ -21,6 +21,16 @@ class Vivi(unittest.TestCase):
                          "cd \"$HOME/hub\" && tail -n0 -F coda.jsonl | grep --line-buffered '\"sveglia\": true'")
         self.assertIsNone(vivi.comando_eval("/usr/bin/caffeinate -i"))
 
+    def test_e_normale_lsp(self):
+        # 23/11: sourcekit-lsp (swift-lsp) bloccava il riavvio di CONCORRENTI come «lavoro in sottofondo»
+        self.assertTrue(vivi.e_normale("sourcekit-lsp"))
+        self.assertTrue(vivi.e_normale("/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/sourcekit-lsp"))
+        for n in ("clangd", "gopls", "rust-analyzer", "jdtls", "ruby-lsp", "lua-language-server", "lua-language-ser"):
+            self.assertTrue(vivi.e_normale(n), n)
+        self.assertFalse(vivi.e_normale("tail -n0 -F coda.jsonl"))
+        self.assertFalse(vivi.e_normale("zsh"))
+        self.assertFalse(vivi.e_normale("lua-language"))
+
     def test_e_claude(self):
         self.assertTrue(vivi.e_claude("claude -n METODO"))
         self.assertTrue(vivi.e_claude("/Users/x/.local/share/claude/versions/2.1.319 --x"))

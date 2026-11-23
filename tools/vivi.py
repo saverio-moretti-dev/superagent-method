@@ -24,8 +24,14 @@ CLAUDE = os.path.join(CASA, ".local", "bin", "claude")
 # riavvia.py. Safe to exclude by name: Monitor and background Bash always run inside a /bin/zsh «eval '…'» wrapper,
 # so a real task is never a direct node/npm/python child (14/11: `npm exec <mcp-server>` alive for a day blocked
 # every restart of a session as «background work»).
-NORMALI = frozenset({"caffeinate", "node", "clangd", "npm", "npx", "uv", "uvx", "python", "python3", "bun", "bunx",
-                     "deno", "docker"})
+# LSP: the servers of the official Claude Code LSP plugins (23/11: sourcekit-lsp of swift-lsp, alive for 8 days, blocked
+# the restart of CONCORRENTI). The node-based ones (typescript-language-server, pyright-langserver) already show as node.
+LSP = {"clangd", "sourcekit-lsp", "gopls", "rust-analyzer", "pyright-langserver", "typescript-language-server",
+       "csharp-ls", "intelephense", "jdtls", "kotlin-lsp", "lua-language-server", "ruby-lsp"}
+NORMALI = frozenset({"caffeinate", "node", "npm", "npx", "uv", "uvx", "python", "python3", "bun", "bunx",
+                     "deno", "docker"} | LSP)
+# pgrep -l prints the kernel process name, cut at 16 characters (lua-language-server -> lua-language-ser).
+NORMALI_16 = frozenset(n[:16] for n in NORMALI if len(n) > 16)
 
 
 def e_normale(cmd):
@@ -33,7 +39,7 @@ def e_normale(cmd):
     if not cmd:
         return True
     base = os.path.basename(cmd.split()[0])
-    return base in NORMALI or re.fullmatch(r"python3\.\d+", base) is not None
+    return base in NORMALI or base in NORMALI_16 or re.fullmatch(r"python3\.\d+", base) is not None
 
 
 def ps(pid, campi):
