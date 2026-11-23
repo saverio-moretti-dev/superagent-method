@@ -40,7 +40,7 @@ Regole di scrittura:
 - Elenca esplicitamente ciò che è **vago o da approfondire**.
 - Nessuna cronologia narrativa, nessun saluto.
 
-**Schema fisso** (sezioni vuote: ometti):
+**Schema fisso** (sezioni vuote: ometti). Riga 1 = titolo `# PASSAGGIO …`, riga 2 = intestazione `nome: …`: **niente sopra il titolo** (nessun «Prima di tutto: agenda …»: l'agenda va in «Contesto globale»). La guardia del riavvio cerca `nome:` nelle prime 6 righe; se non lo trova il riavvio automatico non parte.
 ```
 # PASSAGGIO — <data ora> — <repo/cartella>
 nome: <NOME> · cartella: <cwd> · sessione: <primi 8 caratteri dell'id> · scritta: <AAAA-MM-GG HH:MM, da `scrivi`/`timbra`>
