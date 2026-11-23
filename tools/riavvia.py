@@ -23,8 +23,10 @@ Guardie (tutte, ricontrollate subito prima di ogni invio):
      OPPURE status busy ma la trascrizione dice turno finito (ultima voce = fine turno, file fermo da 20 s):
      claude agents dà «busy» per tutto il tempo in cui un comando in sottofondo è vivo (misurato 11/11 17:46-17:50:
      SUP fermo, http.server 4322 lanciato prima di un /clear → busy per 4 min; ogni riavvio del SUP rifiutato);
-  c. al massimo un riavvio per scheda ogni 5 minuti (file di blocco ~/.claude/consumo/riavvii/<tty>.json);
-  d. nessun altro riavvio in attesa per la stessa scheda (ps: altri riavvia.py o il vecchio riavvia.sh);
+  c. al massimo un riavvio per scheda ogni 5 minuti (file di blocco ~/.claude/consumo/riavvii/<tty>.json); il blocco
+     di un riavvio finito senza riuscire (processo morto, nessun RIAVVIATO) non vale (23/11);
+  d. nessun altro riavvio in attesa per la stessa scheda (ps: altri riavvia.py o il vecchio riavvia.sh); con --attendi,
+     se l'altro è partito prima, si esce subito con 3 (GIÀ IN CORSO: se ne occupa lui) invece di aspettare (23/11);
   g. (12/11) nessun sotto-agente vivo o dubbio (<sid>/subagents/*: non «finished» e scritto da < 30 min) e, prima di
      /exit, nessun comando in sottofondo (figli del processo claude, esclusi caffeinate/MCP/LSP): con uno vivo /exit
      apre «Background work is running», e un tasto scritto dopo può chiudere la sessione. Se la finestra compare
@@ -56,7 +58,7 @@ del tty rimasto → chi rilanciava aspettava 300 s): ogni osascript ha 15 s; se 
 Riavvio pulito (G1 B4, 13/11; R40, R78, 12/11 01:06: Monitor doppio e doppioni dopo il riavvio):
   h. prima di /exit o /clear la sessione riceve «Riavvio: esegui ~/.claude/passaggi/FERMA.md» (file scritto qui):
      TaskStop di ogni Monitor/comando in sottofondo, CronDelete di ogni cron (non con --sup), poi l'elenco in
-     ~/.claude/passaggi/NOME.pronto. Si aspetta quel file (FERMA_S) e la sessione ferma. Agente: se dopo restano figli
+     ~/.claude/passaggi/NOME.pronto (cancellato prima dell'invio: un .pronto vecchio uguale non si riscrive). Si aspetta quel file (FERMA_S) e la sessione ferma. Agente: se dopo restano figli
      in sottofondo, niente /exit (uscita 8). SUP (/clear): si va avanti e il log lo dice; i rimasti li segnala
      l'hook vivi.py --hook (SessionStart clear) e avvio-sup li riconosce. --senza-ferma salta questo passo;
   i. dopo /riparti di un agente: altre sessioni con lo stesso nome (o «NOME (2)») su un altro tty = doppioni. Ferma
@@ -79,7 +81,7 @@ Variabili d'ambiente (solo per le prove; senza, valori normali):
   RIAVVIA_PROVA=1         consente --sup su una sessione di prova il cui nome comincia per PROVA-
                           (manda «/riparti <nome in minuscolo>», come «/riparti superagente» per il SUP)
 """
-import datetime, glob, json, os, subprocess, sys, time
+import datetime, glob, json, os, re, subprocess, sys, time
 
 CASA = os.path.expanduser("~")
 SCRITTO = False   # True appena un `do script` è arrivato alla scheda: da lì il blocco del tty resta
@@ -103,7 +105,7 @@ Tra poco questa sessione viene riavviata. Prima, senza domande e senza messaggi 
    di Bash in sottofondo, e nelle loro notifiche). Solo i tuoi.
 3. Scrivi ~/.claude/passaggi/NOME.pronto, dove NOME è il nome della tua sessione (riga `nome:` della tua nota di
    passaggio): una riga per cosa fermata (`cron <id> <descrizione>` / `task <id> <descrizione>`), poi `fine`.
-   Se non c'era niente: solo `fine`.
+   Se non c'era niente: solo `fine`. Scrivilo SEMPRE, anche se esiste già con lo stesso testo: conta l'ora del file.
 4. Fine del turno: non fare altro (il riavvio lo fa lo script).
 """
 NOTA_MAX_S = int(os.environ.get("RIAVVIA_NOTA_MAX_S") or 10 * 60)
@@ -437,6 +439,9 @@ def g_blocco(tty):
         with open(p, encoding="utf-8") as f:
             prima = json.load(f)
         eta = time.time() - prima.get("t", 0)
+        pid = prima.get("pid")
+        if pid and pid != os.getpid() and not prima.get("ok") and not vivo(pid):
+            return None  # 23/11: riavvio precedente finito senza riuscire (FALLITO, rifiutato): niente attesa di 300 s
         if eta < BLOCCO_S:
             return f"già un riavvio su {tty_corto(tty)} {int(eta)} s fa ({prima.get('nome')}): aspetta {BLOCCO_S} s"
     except (OSError, ValueError):
@@ -447,7 +452,30 @@ def g_blocco(tty):
 def blocca(tty, nome):
     os.makedirs(BLOCCHI, exist_ok=True)
     with open(os.path.join(BLOCCHI, tty_corto(tty) + ".json"), "w", encoding="utf-8") as f:
-        json.dump({"t": time.time(), "ora": ora(), "nome": nome}, f)
+        json.dump({"t": time.time(), "ora": ora(), "nome": nome, "pid": os.getpid()}, f)
+
+
+def blocco_ok(tty):
+    """Riavvio verificato: il blocco resta per BLOCCO_S anche dopo l'uscita del processo (regola c, un riavvio ogni 5 min)."""
+    p = os.path.join(BLOCCHI, tty_corto(tty) + ".json")
+    try:
+        with open(p, encoding="utf-8") as f:
+            b = json.load(f)
+        b["ok"] = True
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(b, f)
+    except (OSError, ValueError):
+        pass
+
+
+def vivo(pid):
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except PermissionError:
+        return True
+    except (OSError, ValueError):
+        return False
 
 
 def sblocca(tty, perche):
@@ -504,6 +532,16 @@ def g_altri(tty):
         if e_riavvio(cmd) and (f"/dev/{t}" in cmd or f" {t}" in cmd):
             return f"altro riavvio in attesa per {t}: pid {pid}"
     return None
+
+
+def altro_in_corso(tty):
+    """Pid di un altro riavvia.py per lo stesso tty partito PRIMA di questo (None se nessuno, o partiti nello stesso
+    secondo: allora aspettano tutti e due come prima, uno esce col blocco)."""
+    m = re.search(r"pid (\d+)", g_altri(tty) or "")
+    if not m:
+        return None
+    lui, io = avvio_pid(int(m.group(1))), avvio_pid(os.getpid())
+    return int(m.group(1)) if lui is not None and io is not None and lui < io - 1 else None
 
 
 def sid_su(nome, tty):
@@ -877,6 +915,10 @@ def main(a):
     sid0 = sid_su(nome, tty) if attendi else None
     prima = None
     while True:
+        altro = altro_in_corso(tty) if attendi else None
+        if altro:  # 23/11: guardia + SUP sullo stesso tty, il secondo aspettava 300 s per niente
+            registra(f"GIÀ IN CORSO {nome} {tty_corto(tty)}: riavvia.py pid {altro} partito prima")
+            esci(f"RIAVVIO GIÀ IN CORSO di {nome}: se ne occupa riavvia.py pid {altro}", 3)
         motivo = guardie(nome, tty, t0=t0, uscita=not sup and not ferma)  # con il passo h i figli li ferma la sessione
         tipo = "".join(c for c in (motivo or "") if not c.isdigit())  # «scritta 8 s fa» e «19 s fa» = stessa guardia
         if attendi and tipo != prima:  # ogni cambio di guardia nel log, con l'ora
@@ -922,6 +964,10 @@ def ferma_tutto(nome, tty, prova, sup=False):
     if prova:
         print(f"  (prova) scriverei {TESTO_FERMA!r} e aspetterei {pronto}")
         return None
+    try:  # 23/11 VISIBILITA: .pronto «fine» delle 14:02 già lì, l'agente l'ha letto, era uguale e non l'ha riscritto →
+        os.remove(pronto)  # mtime vecchio, FALLITO dopo 180 s. Tolto prima di FERMA, il file nuovo si vede di sicuro.
+    except OSError:
+        pass
     with open(FERMA_MD, "w", encoding="utf-8") as f:
         f.write(istruzioni_ferma(sup))
     t_invio = time.time()
@@ -1030,6 +1076,7 @@ def esegui(nome, tty, cartella, sup, prova, ferma=True, modello=None):
         if perche:
             registra(f"FALLITO {nome} {tty_corto(tty)}: contesto svuotato ({sid1[:8]}) ma {riparti} non partito: {perche}")
             esci(f"RIAVVIO A METÀ di {nome}: contesto svuotato, ma {riparti} non partito ({perche})", 5)
+        blocco_ok(tty)
         registra(f"RIAVVIATO {nome} {tty_corto(tty)}: verificato (/clear {(sid0 or '?')[:8]} → {sid1[:8]}, {riparti} partito)")
         esci(f"{nome} riavviato su {tty_corto(tty)} (verificato)", 0)
 
@@ -1073,6 +1120,7 @@ def esegui(nome, tty, cartella, sup, prova, ferma=True, modello=None):
         time.sleep(2)
         sid1 = sid_su(nome, tty)
         if sid1 and sid1 != sid0 and esito_comando(sid1, "riparti", t_invio) == "ok":
+            blocco_ok(tty)
             registra(f"RIAVVIATO {nome} {tty_corto(tty)}: verificato (sessione {(sid0 or '?')[:8]} → {sid1[:8]}, /riparti partito)")
             d = chiudi_doppioni(nome, tty)
             if d:

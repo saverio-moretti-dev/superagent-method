@@ -356,6 +356,47 @@ class Attesa(Base):
         self.nota(fa_s=60)
         self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup"), 0)
 
+    def _blocco(self, pid, ok=False):
+        os.makedirs(self.r.BLOCCHI, exist_ok=True)
+        with open(os.path.join(self.r.BLOCCHI, "ttys002.json"), "w") as f:
+            json.dump({"t": self.ora.t - 220, "nome": "SUPERAGENTE", "pid": pid, **({"ok": True} if ok else {})}, f)
+
+    def test_18b_blocco_di_riavvio_fallito_non_vale(self):
+        """23/11: FALLITO 19:27:37, rilancio 19:28:16 «già un riavvio 220 s fa: aspetta 300 s». Processo morto e
+        nessun RIAVVIATO → il blocco non vale; riavvio verificato (ok) → vale; processo vivo → vale."""
+        self.stato = "idle"
+        self.nota(fa_s=60)
+        self.trascrivi(FINE)
+        morto = subprocess.Popen(["true"]); morto.wait()
+        self._blocco(morto.pid, ok=True)
+        self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup"), 2)
+        vivo = subprocess.Popen(["sleep", "30"]); self.addCleanup(vivo.kill)
+        self._blocco(vivo.pid)
+        self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup"), 2)
+        self.assertEqual(self.inviati, [])
+        self._blocco(morto.pid)
+        self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup"), 0)
+        self.r.blocca(TTY, "SUPERAGENTE")  # riuscito: blocco_ok lo segna e resta per i 5 minuti anche a processo finito
+        self.r.blocco_ok(TTY)
+        with open(os.path.join(self.r.BLOCCHI, "ttys002.json")) as f:
+            b = json.load(f)
+        self.assertTrue(b["ok"])
+        self.assertEqual(b["pid"], os.getpid())
+
+    def test_17b_secondo_riavvio_esce_subito(self):
+        """23/11: guardia + SUP sullo stesso tty, il secondo aspettava 300 s. Con --attendi esce subito con 3."""
+        self.r.g_altri = lambda tty: "altro riavvio in attesa per ttys002: pid 777"
+        self.r.avvio_pid = lambda pid: 100.0 if pid == 777 else 200.0
+        self.stato = "idle"
+        self.nota(fa_s=60)
+        self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup", "--attendi", "5"), 3)
+        self.assertEqual(self.inviati, [])
+        self.assertIn("GIÀ IN CORSO SUPERAGENTE", self.log())
+        self.r.avvio_pid = lambda pid: 200.0  # partiti nello stesso secondo: nessuno esce subito
+        self.assertIsNone(self.r.altro_in_corso(TTY))
+        self.r.g_altri = lambda tty: None
+        self.assertIsNone(self.r.altro_in_corso(TTY))
+
     def test_19_sequenza_sup_completa_con_sottofondo(self):
         """Il caso di oggi da cima a fondo: busy per il sottofondo, turno finito → /clear → la trascrizione nuova
         (local_command) resta busy per il sottofondo → /riparti, una volta sola, in quest'ordine."""
@@ -890,6 +931,27 @@ class Ferma(Base):
             f.write("fine\n")
         os.utime(p, (self.ora.t - 600, self.ora.t - 600))
         self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 8)
+
+    def test_52b_pronto_vecchio_uguale_tolto_prima(self):
+        """23/11 VISIBILITA: .pronto «fine» già lì, l'agente lo legge, è uguale e non lo riscrive → FALLITO dopo 180 s.
+        Ora riavvia.py lo toglie prima di FERMA: l'agente che scrive solo se manca lo crea nuovo."""
+        self.prepara("PROVA-A")
+        p = os.path.join(self.home, ".claude", "passaggi", "PROVA-A.pronto")
+        with open(p, "w") as f:
+            f.write("fine\n")
+        os.utime(p, (self.ora.t - 600, self.ora.t - 600))
+        scrivi0 = self.r.scrivi
+
+        def scrivi(tty, testo, prova, svuota=0):
+            if testo == self.r.TESTO_FERMA and os.path.exists(p):  # l'agente pigro: c'è già, non riscrive
+                self.inviati.append((self.r.tty_corto(tty), testo, self.ora.t))
+                return True
+            return scrivi0(tty, testo, prova, svuota)
+        self.r.scrivi = scrivi
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 0)
+        self.assertIn("FERMA OK PROVA-A", self.log())
+        with open(self.r.FERMA_MD, encoding="utf-8") as f:
+            self.assertIn("anche se esiste già", f.read())
 
     def test_53_agente_figli_rimasti_niente_exit(self):
         self.prepara("PROVA-A")
