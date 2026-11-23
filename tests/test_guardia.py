@@ -109,6 +109,35 @@ class Guardia(unittest.TestCase):
         self.hook("Stop", "AGENTE-T", 40)
         self.assertEqual(self.lanci(1.5), [])
 
+    def test_agente_nota_con_riga_sopra_intestazione_riavvia(self):
+        # 23/11: una riga sopra il titolo spinge «nome:» alla riga 4 -> nota scartata, niente riavvio, niente log
+        with open(os.path.join(self.passaggi, "AGENTE-T.md"), "w") as f:
+            f.write("Prima di tutto: agenda `agende/AGENTE-T.md`\n\n# PASSAGGIO\nnome: AGENTE-T · cartella: /x\n")
+        self.hook("Stop", "AGENTE-T", 40)
+        self.assertEqual(len(self.lanci()), 1)
+
+    def test_agente_nota_fresca_scartata_lascia_il_motivo(self):
+        with open(os.path.join(self.passaggi, "AGENTE-T.md"), "w") as f:
+            f.write("# PASSAGGIO\nintestazione mancante\n")
+        self.hook("Stop", "AGENTE-T", 40)
+        self.assertEqual(self.lanci(1.5), [])
+        testo = open(os.path.join(self.t, "riavvii.log")).read()
+        self.assertIn("GUARDIA AGENTE-T", testo)
+        self.assertIn("nome:", testo)
+        self.hook("Stop", "AGENTE-T", 40)  # stessa nota: il motivo si scrive una volta, non a ogni fine turno
+        self.assertEqual(open(os.path.join(self.t, "riavvii.log")).read().count("GUARDIA AGENTE-T"), 1)
+
+    def test_agente_nota_scartata_a_210k_una_sola_risposta(self):
+        with open(os.path.join(self.passaggi, "AGENTE-T.md"), "w") as f:
+            f.write("# PASSAGGIO\nintestazione mancante\n")
+        out = self.hook("Stop", "AGENTE-T", 210)  # hook() fa json.loads: due risposte di fila farebbero errore
+        self.assertIn("Riavvio non lanciato", out.get("systemMessage", ""))
+
+    def test_agente_nota_di_un_altro_lascia_il_motivo(self):
+        self.nota("AGENTE-T", riga2="ALTRO")
+        self.hook("Stop", "AGENTE-T", 40)
+        self.assertIn("ALTRO", open(os.path.join(self.t, "riavvii.log")).read())
+
     def test_agente_lavoro_vivo_niente(self):
         self.env["FINTO_VIVI"] = json.dumps([{"pid": 1, "kind": "Monitor", "id": "b1"}])
         self.nota("AGENTE-T")

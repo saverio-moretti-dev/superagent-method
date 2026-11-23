@@ -13,7 +13,7 @@ Coordinatore (nomi in `coordinatori`), soglie 150/175/200K:
   non lancia mai riavvia.py a turno aperto.
 Agenti (soglie 150/200K; G1 B5, 13/11): avviso >=150K, sollecito >=200K; >=200K PreToolUse nega tutto tranne gli
   strumenti del passaggio e a fine turno, senza nota, rimanda indietro. Riavvio a FINE TURNO a qualunque K se: nota
-  NOME.md fresca con riga 2 «nome: NOME», nessun lavoro in sottofondo vivo (vivi.py), sessione con tty. Lancia staccato
+  NOME.md fresca con «nome: NOME» nelle prime 6 righe, nessun lavoro in sottofondo vivo (vivi.py), sessione con tty. Lancia staccato
   riavvia.py NOME TTY CARTELLA --attendi 3 (senza --sup, niente pausa). Il riavvio tocca solo la sessione dell'hook.
 Un solo riavvio per sessione: firma = mtime della nota OPPURE stessa sessione entro firma_s (default 15 min) OPPURE
   processo di riavvio ancora vivo (pid nella firma, solo entro riavvio_max_s + 2 min: oltre = pid riusato o appeso).
@@ -279,18 +279,23 @@ def gia_lanciato(c, nome, sid, nota):
     return ""
 
 
-def nota_valida(c, nome, nota):
-    """True se la nota esiste, e' fresca e la riga 2 dice «nome: NOME»."""
+def motivo_nota(c, nome, nota):
+    """None se la nota e' buona per il riavvio; «vecchia» se manca o non e' fresca; altrimenti il motivo dello scarto.
+    23/11: una riga sopra il titolo spingeva «nome:» fuori dalla riga 2 -> nota scartata in silenzio, niente riavvio."""
     if not os.path.exists(nota) or time.time() - os.path.getmtime(nota) >= c["nota_fresca_s"]:
-        return False
+        return "vecchia"
     try:
-        with open(nota, encoding="utf-8") as f:
-            f.readline()
-            riga2 = f.readline()
-    except OSError:
-        return False
-    m = re.match(r"\s*nome:\s*([^\s·]+)", riga2)
-    return bool(m) and m.group(1).upper() == nome.upper()
+        with open(nota, encoding="utf-8", errors="replace") as f:
+            testa = [f.readline() for _ in range(6)]
+    except OSError as e:
+        return f"nota illeggibile ({e})"
+    for riga in testa:
+        m = re.search(r"\bnome:\s*([^\s·]+)", riga)
+        if m:
+            if m.group(1).upper() == nome.upper():
+                return None
+            return f"la nota dice «nome: {m.group(1)}», la sessione e' {nome}"
+    return "nessuna riga «nome: NOME» nelle prime 6 righe della nota"
 
 
 def sup(c, *argomenti):
@@ -402,7 +407,17 @@ def agente(c, d, ev, s, nome, k, sid):
             log(c, f"{nome}: negato {d.get('tool_name')} a {k}K")
         return
     if ev == "Stop":
-        if nota_valida(c, nome, nota):
+        perche_no = motivo_nota(c, nome, nota)
+        if perche_no not in (None, "vecchia"):
+            firma = os.path.getmtime(nota)
+            if s.get("t_nota_scartata") != firma:  # una volta per versione della nota, non a ogni fine turno
+                s["t_nota_scartata"] = firma
+                log(c, f"{nome}: nota fresca scartata: {perche_no}")
+                registra_riavvii(c, f"{nome}: riavvio automatico NON lanciato, nota fresca scartata: {perche_no}")
+                print(json.dumps({"systemMessage": f"Riavvio non lanciato: {perche_no}. Correggi l'intestazione della "
+                                  "nota (riga 1 titolo, riga 2 «nome: NOME · …») e chiudi il turno."}))
+                return  # una sola risposta per fine turno (sotto ci sarebbe il «block» dei 200K)
+        if perche_no is None:
             perche = gia_lanciato(c, nome, sid, nota)
             if perche:
                 return
