@@ -11,6 +11,9 @@ Uso:
   opzioni:  --attendi MIN   aspetta fino a MIN minuti che le guardie siano verdi (al posto dei vecchi «until … sleep»)
             --prova         controlla e dice cosa farebbe, senza scrivere niente nella scheda
             --senza-ferma   niente passo h (TaskStop/CronDelete prima del riavvio)
+            --prima JSON    lista di argomenti di un comando da lanciare a guardie verdi, subito prima del passo h
+                            (es. mettere in pausa una coda); poi le guardie si ricontrollano
+            --sid SID       sessione attesa: se su TTY ora gira un'altra sessione NOME, uscita 3 e niente riavvio
             --model M       (solo agente) rilancia con questo modello (es. sonnet, claude-sonnet-5-5) e lo FISSA:
                             scrive ~/.claude/passaggi/NOME.modello, che vale per ogni riavvio dopo (anche della guardia)
             --model auto    toglie NOME.modello: si torna al modello letto dalla trascrizione
@@ -341,14 +344,45 @@ def solo_clear(voci):
     return visto_clear
 
 
+NOTIFICA = re.compile(r"<task-id>([^<]+)</task-id>.*?<status>(completed|failed|killed)</status>", re.S)
+
+
+def notifiche_fine(f):
+    """{id sotto-agente: ora dell'ultima task-notification di fine} dalla trascrizione del padre. Valgono solo le voci
+    queue-operation «enqueue» che COMINCIANO con la notifica: lo stesso testo stampato da un comando non conta."""
+    out = {}
+    try:
+        with open(f, encoding="utf-8", errors="replace") as h:
+            for r in h:
+                if "<task-notification>" not in r or '"enqueue"' not in r:
+                    continue
+                try:
+                    d = json.loads(r)
+                except ValueError:
+                    continue
+                c, q = d.get("content"), _quando(d)
+                if d.get("type") != "queue-operation" or d.get("operation") != "enqueue" or q is None \
+                        or not isinstance(c, str) or not c.startswith("<task-notification>"):
+                    continue
+                for blocco in c.split("</task-notification>"):
+                    m = NOTIFICA.search(blocco)
+                    if m:
+                        out[m.group(1)] = max(q, out.get(m.group(1), 0))
+    except OSError:
+        pass
+    return out
+
+
 def sottoagenti(sid):
     """(vivi, dubbi): sotto-agenti della sessione sid dalle loro trascrizioni <sid>/subagents/*.jsonl.
-    Concluso = .meta.json con finished true, oppure ultima voce assistant con stop_reason end_turn. Non concluso e scritto da < SOTTOAGENTE_VIVO_S = vivo;
+    Concluso = .meta.json con finished true, oppure ultima voce assistant con stop_reason end_turn, oppure nel padre c'è
+    una task-notification completed/failed/killed per quell'id non più vecchia dell'ultima voce (24/11: un agente fermato
+    con TaskStop non ha finished né end_turn; se viene ripreso, la voce nuova è dopo la notifica e torna vivo). Non concluso e scritto da < SOTTOAGENTE_VIVO_S = vivo;
     non concluso e scritto da < SOTTOAGENTE_DUBBIO_S = dubbio. claude agents non li lega al padre (D4, 12/11)."""
     f = trascrizione(sid)
     if not f:
         return [], []
-    vivi, dubbi = [], []
+    vivi, dubbi, fine = [], [], None
     for s in glob.glob(os.path.join(f[:-len(".jsonl")], "subagents", "*.jsonl")):
         eta = time.time() - os.path.getmtime(s)
         if eta >= SOTTOAGENTE_DUBBIO_S:
@@ -376,6 +410,10 @@ def sottoagenti(sid):
         if ultima and ultima.get("type") == "assistant" and isinstance(m, dict) and m.get("stop_reason") == "end_turn":
             continue
         nome = os.path.basename(s)[:-len(".jsonl")]
+        fine = notifiche_fine(f) if fine is None else fine  # il padre si legge solo se serve, una volta
+        q = _quando(ultima) if ultima else None
+        if q is not None and fine.get(nome[len("agent-"):] if nome.startswith("agent-") else nome, 0) >= q:
+            continue
         (vivi if eta < SOTTOAGENTE_VIVO_S else dubbi).append(f"{nome} ({int(eta)} s)")
     return vivi, dubbi
 
@@ -897,6 +935,20 @@ def main(a):
             esci(f"--model: nome di modello non valido ({modello!r})", 1)
         if sup:
             esci("--model non vale con --sup (il SUP fa /clear e resta sullo stesso modello)", 1)
+    prima_cmd, sid_atteso = None, None
+    if "--prima" in a:
+        i = a.index("--prima")
+        try:
+            prima_cmd = json.loads(a[i + 1])
+        except (IndexError, ValueError):
+            prima_cmd = None
+        if not (isinstance(prima_cmd, list) and prima_cmd and all(isinstance(x, str) for x in prima_cmd)):
+            esci("--prima: serve una lista JSON di argomenti", 1)
+        del a[i:i + 2]
+    if "--sid" in a:
+        i = a.index("--sid")
+        sid_atteso = a[i + 1] if i + 1 < len(a) else None
+        del a[i:i + 2]
     a = [x for x in a if x not in ("--prova", "--sup", "--senza-ferma")]
     nome, tty = a[0].upper(), a[1]
     cartella = a[2] if len(a) > 2 else None
@@ -912,7 +964,12 @@ def main(a):
     frena(nome, tty)
     t0 = time.time()
     fine = t0 + attendi * 60
-    sid0 = sid_su(nome, tty) if attendi else None
+    sid0 = sid_atteso or (sid_su(nome, tty) if attendi else None)
+    if sid_atteso:  # tentativo ripetuto: fra un tentativo e l'altro la sessione può essere stata sostituita
+        oltre = superato(nome, tty, sid0, t0)
+        if oltre:
+            registra(f"SUPERATO {nome} {tty_corto(tty)}: {oltre}")
+            esci(f"NIENTE RIAVVIO di {nome}: {oltre}", 3)
     prima = None
     while True:
         altro = altro_in_corso(tty) if attendi else None
@@ -937,6 +994,12 @@ def main(a):
 
     if attendi:
         frena(nome, tty)
+    if prima_cmd and not prova:
+        lancia_prima(nome, tty, prima_cmd)
+        motivo = guardie(nome, tty, t0=t0, uscita=not sup and not ferma)  # può aver preso qualche secondo
+        if motivo:
+            registra(f"RIFIUTATO {nome} {tty_corto(tty)}: dopo --prima {motivo}")
+            esci(f"NIENTE RIAVVIO di {nome}: {motivo}", 2)
     if not prova:
         blocca(tty, nome)
     try:
@@ -947,6 +1010,17 @@ def main(a):
     finally:
         if not prova and not SCRITTO:
             sblocca(tty, f"riavvio di {nome} finito senza aver scritto niente nella scheda")
+
+
+def lancia_prima(nome, tty, comando_prima):
+    """Comando di --prima, a guardie verdi e prima di FERMA (es. la pausa della coda messaggi). Se fallisce si scrive
+    nel log e il riavvio va avanti: è un contorno, non una guardia."""
+    try:
+        r = subprocess.run(comando_prima, capture_output=True, text=True, timeout=90)
+        esito = f"rc={r.returncode}" + ("" if r.returncode == 0 else f" {(r.stdout + r.stderr).strip()[-200:]}")
+    except (subprocess.SubprocessError, OSError) as e:
+        esito = f"non riuscito ({e})"
+    registra(f"PRIMA {nome} {tty_corto(tty)}: {esito}")
 
 
 def istruzioni_ferma(sup):
@@ -1064,10 +1138,10 @@ def esegui(nome, tty, cartella, sup, prova, ferma=True, modello=None):
             motivo = attendi_ferma(nome, tty, True, 300)
             if motivo:
                 registra(f"DOPO /clear {nome}: {motivo}")
-                esci(f"/clear fatto, ma «/riparti» no: {motivo}", 2)
+                esci(f"/clear fatto, ma «/riparti» no: {motivo}", 5)  # 24/11: non 2 (2 = niente scritto, si può ritentare)
             if sid_su(nome, tty) != sid1:
                 registra(f"DOPO /clear {nome}: sessione cambiata ancora, /riparti non mandato")
-                esci("/clear fatto, ma la sessione è cambiata di nuovo: /riparti non mandato", 2)
+                esci("/clear fatto, ma la sessione è cambiata di nuovo: /riparti non mandato", 5)
             t_invio = time.time()
             perche = "casella non svuotata" if not comando(tty, riparti, prova) else attendi_comando(nome, tty, sid1, "riparti", t_invio, riparti)
             if not perche:
@@ -1097,7 +1171,7 @@ def esegui(nome, tty, cartella, sup, prova, ferma=True, modello=None):
             esci(f"{nome}: /exit ha aperto «Background work is running» su {tty_corto(tty)}. Non scrivere niente: "
                  "Esc nella scheda, ferma i task in sottofondo, poi rilancia", 6)
         registra(f"ANCORA VIVA {nome} {tty_corto(tty)} dopo /exit")
-        esci(f"{nome} ancora viva dopo /exit: guarda la scheda {tty_corto(tty)}", 2)
+        esci(f"{nome} ancora viva dopo /exit: guarda la scheda {tty_corto(tty)}", 6)
     q = cartella.replace("'", "'\\''")
     t_invio = time.time()
     extra = os.environ.get("RIAVVIA_EXTRA", "") if nome.startswith("PROVA-") else ""  # solo prove (--settings); --model vero: opzione

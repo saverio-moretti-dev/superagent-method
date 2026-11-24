@@ -428,7 +428,7 @@ class Attesa(Base):
                 self.trascrivi(CLEAR + TOOL_APERTO, fa_s=0, sid=self.sid)
             return True
         self.r.scrivi = scrivi
-        self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup", "--attendi", "15"), 2)
+        self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup", "--attendi", "15"), 5)  # 24/11: era 2, ma 2 = niente scritto
         self.assertEqual([t for _, t, _ in self.inviati], ["/clear"])
         self.assertIn("DOPO /clear", self.log())
 
@@ -1018,6 +1018,160 @@ class Ferma(Base):
 
     def test_61_testo_ferma_corto(self):
         self.assertLessEqual(len(self.r.TESTO_FERMA), 44)
+
+
+class SottoAgenti(Base):
+    """24/11: sotto-agente fermato con TaskStop (ultima voce «[Request interrupted…», meta senza finished) contato come
+    «forse vivo» per 30 min → riavvio rifiutato. La prova che è concluso è la task-notification nel padre."""
+    ID = "a2385022b5f7c1712"
+
+    def quando(self, fa_s):
+        return time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(self.ora.t - fa_s))
+
+    def sotto(self, ultima, fa_s, ident=None):
+        d = os.path.join(self.home, ".claude", "projects", "p", self.sid, "subagents")
+        os.makedirs(d, exist_ok=True)
+        p = os.path.join(d, f"agent-{ident or self.ID}.jsonl")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(json.dumps(dict(ultima, timestamp=self.quando(fa_s))) + "\n")
+        with open(p[:-len(".jsonl")] + ".meta.json", "w") as f:
+            json.dump({"agentType": "general-purpose"}, f)
+        os.utime(p, (self.ora.t - fa_s, self.ora.t - fa_s))
+
+    def notifica(self, stato, fa_s, ident=None, **altro):
+        c = f"<task-notification>\n<task-id>{ident or self.ID}</task-id>\n<status>{stato}</status>\n</task-notification>"
+        return dict({"type": "queue-operation", "operation": "enqueue", "timestamp": self.quando(fa_s), "content": c}, **altro)
+
+    INTERROTTO = {"type": "user", "message": {"content": [{"type": "text", "text": "[Request interrupted by user for tool use]"}]}}
+
+    def esito(self):
+        return self.r.sottoagenti(self.sid)
+
+    def test_80_fermato_concluso(self):
+        for stato in ("killed", "completed", "failed"):
+            with self.subTest(stato):
+                self.sotto(self.INTERROTTO, 300)
+                self.trascrivi(FINE + [self.notifica(stato, 300)])
+                self.assertEqual(self.esito(), ([], []))
+        self.sotto(self.INTERROTTO, 30)  # scritto da poco: con la notifica è concluso lo stesso
+        self.trascrivi(FINE + [self.notifica("killed", 30)])
+        self.assertEqual(self.esito(), ([], []))
+
+    def test_81_senza_notifica_dubbio(self):
+        self.sotto(self.INTERROTTO, 300)
+        self.trascrivi(FINE)
+        self.assertEqual(len(self.esito()[1]), 1)
+
+    def test_82_ripreso_dopo_la_notifica_vivo(self):
+        self.sotto({"type": "user", "message": {"content": "riprendi"}}, 20)
+        self.trascrivi(FINE + [self.notifica("killed", 300)])
+        self.assertEqual(len(self.esito()[0]), 1)
+
+    def test_83_ripreso_e_rifermato_concluso(self):
+        self.sotto(self.INTERROTTO, 20)
+        self.trascrivi(FINE + [self.notifica("killed", 300), self.notifica("killed", 19)])
+        self.assertEqual(self.esito(), ([], []))
+
+    def test_84_notifica_di_un_altro_o_senza_esito_non_vale(self):
+        self.sotto(self.INTERROTTO, 300)
+        for v in (self.notifica("killed", 300, ident="altro"), self.notifica("running", 300), self.notifica("killed", 300, operation="remove")):
+            self.trascrivi(FINE + [v])
+            self.assertEqual(len(self.esito()[1]), 1, v)
+
+    def test_85_testo_copiato_in_un_risultato_non_vale(self):
+        """Una notifica stampata da un comando (grep di una trascrizione) è un tool_result, non una notifica."""
+        self.sotto(self.INTERROTTO, 300)
+        c = self.notifica("killed", 1)["content"]
+        self.trascrivi(FINE + [{"type": "user", "timestamp": self.quando(1), "message": {"content": [{"type": "tool_result", "content": c}]}}])
+        self.assertEqual(len(self.esito()[1]), 1)
+        # accodato, ma dentro un messaggio di qualcuno: non comincia con la notifica
+        self.trascrivi(FINE + [self.notifica("killed", 1, content="guarda: " + c)])
+        self.assertEqual(len(self.esito()[1]), 1)
+
+    def test_86_due_agenti_uno_vivo(self):
+        self.sotto(self.INTERROTTO, 300)
+        self.sotto({"type": "user", "message": {"content": "x"}}, 10, ident="b9")
+        self.trascrivi(FINE + [self.notifica("killed", 300)])
+        vivi, dubbi = self.esito()
+        self.assertEqual((len(vivi), dubbi), (1, []))
+        self.assertIn("b9", vivi[0])
+
+    def test_87_riavvio_parte_con_agente_fermato(self):
+        self.stato = "idle"
+        self.nota(fa_s=60)
+        self.sotto(self.INTERROTTO, 300)
+        self.trascrivi(FINE + [self.notifica("killed", 300)] + FINE)
+        self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup", "--attendi", "1"), 0)
+
+
+class Prima(Base):
+    """24/11: --prima = comando lanciato a guardie verdi, subito prima di FERMA (la pausa della Regia: prima partiva al
+    lancio, quindi app in pausa e coordinatore fermo insieme per tutta l'attesa). --sid = sessione attesa."""
+
+    def setUp(self):
+        super().setUp()
+        self.stato = "idle"
+        self.segno = os.path.join(self.home, "prima.txt")
+        self.prima = json.dumps([sys.executable, "-c", f"open({self.segno!r},'a').write('x')"])
+
+    def test_90_guardie_rosse_niente_prima(self):
+        self.stato = "busy"
+        self.nota(fa_s=60)
+        self.trascrivi(TOOL_APERTO, fa_s=0)
+        self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup", "--attendi", "1", "--prima", self.prima), 2)
+        self.assertFalse(os.path.exists(self.segno))
+
+    def test_91_guardie_verdi_prima_una_volta(self):
+        self.nota(fa_s=60)
+        self.trascrivi(FINE, fa_s=60)
+        self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup", "--attendi", "1", "--prima", self.prima), 0)
+        self.assertEqual(open(self.segno).read(), "x")
+        self.assertEqual(self.inviati[0][1], "/clear")
+
+    def test_92_prova_non_lancia_prima(self):
+        self.nota(fa_s=60)
+        self.trascrivi(FINE, fa_s=60)
+        self.lancia("SUPERAGENTE", TTY, "--sup", "--prova", "--prima", self.prima)
+        self.assertFalse(os.path.exists(self.segno))
+
+    def test_93_sessione_al_lavoro_durante_prima_niente_invio(self):
+        self.nota(fa_s=60)
+        self.trascrivi(FINE, fa_s=60)
+        vero = self.r.lancia_prima
+
+        def lancia_prima(*a):
+            vero(*a)
+            self.stato = "busy"
+            self.trascrivi(TOOL_APERTO, fa_s=0)
+        self.r.lancia_prima = lancia_prima
+        self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup", "--attendi", "1", "--prima", self.prima), 2)
+        self.assertEqual(self.inviati, [])
+        self.assertTrue(os.path.exists(self.segno))
+        self.assertIn("RIFIUTATO", self.log())
+
+    def test_94_prima_che_fallisce_non_ferma_il_riavvio(self):
+        self.nota(fa_s=60)
+        self.trascrivi(FINE, fa_s=60)
+        self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup", "--attendi", "1", "--prima", json.dumps(["/non/esiste"])), 0)
+        self.assertIn("PRIMA", self.log())
+
+    def test_95_prima_non_valido(self):
+        self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup", "--prima", "rm -rf"), 1)
+        self.assertEqual(self.inviati, [])
+
+    def test_96_sid_diverso_niente_riavvio(self):
+        self.nota(fa_s=60)
+        self.trascrivi(FINE, fa_s=60)
+        self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup", "--attendi", "1", "--sid", "99999999-0000"), 3)
+        self.assertEqual(self.inviati, [])
+
+    def test_97_dopo_clear_uscita_5_non_2(self):
+        """Uscita 2 = niente scritto (la guardia ritenta). A contesto già svuotato deve essere 5, o si ritenta su niente."""
+        self.nota(fa_s=60)
+        self.trascrivi(FINE, fa_s=60)
+        vero = self.r.attendi_ferma
+        self.r.attendi_ferma = lambda n, t, dopo, s: "occupata" if dopo else vero(n, t, dopo, s)
+        self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup", "--attendi", "1"), 5)
 
 
 class Freno(Base):
