@@ -7,10 +7,11 @@ Coordinatore (nomi in `coordinatori`), soglie 150/175/200K:
   >=150K  avviso una volta (poi ogni 30 min): finisci i lavori in corso, niente pausa; appena fermo /passaggio.
   >=175K  sollecito a ogni messaggio e ogni 5 min fra gli strumenti; a fine turno rimanda indietro una volta ogni 10 min.
   >=200K  blocco: PreToolUse nega tutto tranne gli strumenti del passaggio; a fine turno rimanda indietro una volta.
-  Riavvio: a FINE TURNO (= sessione ferma), se la nota ~/.claude/passaggi/NOME.md e' fresca (< 10 min) l'hook
-  trascrive nella nota i messaggi arrivati e non letti, mette in pausa la coda (sup.py pausa) e lancia staccato
-  riavvia.py NOME TTY --sup --attendi 3. Se il riavvio fallisce toglie la pausa (sup.py riprendi). Il coordinatore
-  non lancia mai riavvia.py a turno aperto.
+  Riavvio: a FINE TURNO (= sessione ferma), se la nota ~/.claude/passaggi/NOME.md e' fresca (< 10 min) l'hook lancia
+  staccato riavvia.py NOME TTY --sup --attendi 3. A guardie verdi (--prima) si trascrivono nella nota i messaggi non
+  letti e si mette in pausa la coda (sup.py pausa). Se il riavvio e' rifiutato la pausa si toglie (sup.py riprendi) e
+  si ritenta da soli, senza aspettare un altro fine turno, fino a riavvio_max_s o finche' la nota e' fresca (24/11).
+  Il coordinatore non lancia mai riavvia.py a turno aperto.
 Agenti (soglie 150/200K; G1 B5, 13/11): avviso >=150K, sollecito >=200K; >=200K PreToolUse nega tutto tranne gli
   strumenti del passaggio e a fine turno, senza nota, rimanda indietro. Riavvio a FINE TURNO a qualunque K se: nota
   NOME.md fresca con «nome: NOME» nelle prime 6 righe, nessun lavoro in sottofondo vivo (vivi.py), sessione con tty. Lancia staccato
@@ -41,6 +42,7 @@ DEF = {
     "plancia_dati": "",      # PLANCIA_DATI per sup_py (solo nelle prove)
     "env_riavvio": {},       # variabili in piu' per riavvia.py (es. RIAVVIA_PROVA=1 nelle prove)
     "attendi_min": 3,
+    "ritenta_s": 20,         # fra un rifiuto di riavvia.py e il tentativo dopo
     "nota_fresca_s": 600,
     "firma_s": 900,
     "riavvio_max_s": 1800,  # tempo massimo di riavvia.py (il più lungo visto: ~1050 s)
@@ -317,18 +319,13 @@ def lancia_riavvio(c, nome, sid, nota, cartella=None):
     if not tty:
         log(c, f"{nome}: tty non trovato, niente riavvio")
         return "tty della sessione non trovato: riavvio non lanciato (usa riavvia.py a mano a fine turno)"
-    if cartella is None:
-        rc, out = sup(c, "trascrivi", nota)
-        log(c, f"{nome}: trascrivi rc={rc} {out[:200]}")
-        rc, out = sup(c, "pausa", "riavvio automatico")
-        log(c, f"{nome}: pausa rc={rc}")
     env = dict(os.environ, **{k: str(v) for k, v in c["env_riavvio"].items()})
     if c["plancia_dati"]:
         env["PLANCIA_DATI"] = c["plancia_dati"]
     with open(os.path.join(c["stato_dir"], "riavvio.log"), "a") as lf:
-        p = subprocess.Popen([sys.executable, os.path.abspath(__file__), "--esegui-riavvio", nome, tty] + ([cartella] if cartella else []),
+        p = subprocess.Popen([sys.executable, os.path.abspath(__file__), "--esegui-riavvio", nome, tty, sid] + ([cartella] if cartella else []),
                              stdin=subprocess.DEVNULL, stdout=lf, stderr=lf, start_new_session=True, env=env)
-    with open(firma_path(c, nome), "w", encoding="utf-8") as f:  # firma DOPO trascrivi (che riscrive la nota)
+    with open(firma_path(c, nome), "w", encoding="utf-8") as f:
         json.dump({"nota": f"{os.path.getmtime(nota):.0f}", "ora": time.strftime("%Y-%m-%d %H:%M:%S"), "t": time.time(),
                    "sid": sid, "pid": p.pid}, f)
     log(c, f"{nome}: riavvio lanciato su {tty}")
@@ -336,27 +333,108 @@ def lancia_riavvio(c, nome, sid, nota, cartella=None):
     return ""
 
 
-def esegui_riavvio(nome, tty, cartella=None):
-    """Processo staccato: riavvia.py; se fallisce, toglie la pausa (coordinatore) e la firma. Uscita 3 = gia' sostituita = ok."""
+def segno_pausa(c, nome):
+    return os.path.join(c["stato_dir"], f"pausa-{nome}")
+
+
+def prima_riavvio(nome):
+    """Lanciato da riavvia.py (--prima) a guardie verdi: messaggi nella nota, poi pausa della coda (24/11: prima partiva
+    al lancio, e per tutta l'attesa la coda era in pausa con il coordinatore fermo)."""
     c = cfg()
-    t0 = time.time()
-    arg = [cartella] if cartella else ["--sup"]
-    try:  # tempo massimo: alla scadenza subprocess ferma solo il suo figlio diretto (riavvia.py), mai una sessione
-        r = subprocess.run([sys.executable, c["riavvia"], nome, tty, *arg, "--attendi", str(c["attendi_min"])],
-                           capture_output=True, text=True, timeout=c["riavvio_max_s"])
-    except subprocess.TimeoutExpired:
-        r = subprocess.CompletedProcess([], 124, "", f"SCADUTO: riavvia.py oltre {c['riavvio_max_s']} s")
-    log(c, f"{nome}: riavvia.py rc={r.returncode} in {time.time() - t0:.0f} s: {(r.stdout + r.stderr).strip()[-300:]}")
-    if r.returncode == 3:
-        log(c, f"{nome}: sessione gia' sostituita (uscita 3): esito buono, firma tenuta")
+    nota = os.path.join(c["passaggi_dir"], f"{nome}.md")
+    try:
+        data = os.stat(nota)
+    except OSError:
+        data = None
+    rc, out = sup(c, "trascrivi", nota)
+    log(c, f"{nome}: trascrivi rc={rc} {out[:200]}")
+    if data and os.path.exists(nota):  # trascrivi riscrive la nota: senza, sembrerebbe fresca a ogni tentativo (e la firma non varrebbe piu')
+        os.utime(nota, ns=(data.st_atime_ns, data.st_mtime_ns))
+    with open(segno_pausa(c, nome), "w") as f:  # prima della pausa: se questo processo muore a meta', si toglie lo stesso
+        f.write(time.strftime("%Y-%m-%d %H:%M:%S"))
+    rc, out = sup(c, "pausa", "riavvio automatico")
+    log(c, f"{nome}: pausa rc={rc}")
+
+
+def aggiorna_firma(c, nome, **campi):
+    try:
+        with open(firma_path(c, nome), encoding="utf-8") as f:
+            g = json.load(f)
+        g.update(campi)
+        with open(firma_path(c, nome), "w", encoding="utf-8") as f:
+            json.dump(g, f)
+    except (OSError, ValueError):
+        pass
+
+
+def togli_pausa(c, nome):
+    """Toglie la pausa solo se l'ha messa prima_riavvio: «riprendi» avvisa tutti gli agenti, a vuoto e' rumore."""
+    try:
+        os.remove(segno_pausa(c, nome))
+    except OSError:
         return
-    if r.returncode != 0:
-        rc, out = sup(c, "riprendi") if not cartella else (0, "")
-        try:  # G5: firma tolta, al prossimo fine turno si riprova (riavvia.py ha la sua guardia dei 5 min)
-            os.remove(os.path.join(c["stato_dir"], f"riavvio-{nome}.json"))
+    rc, _ = sup(c, "riprendi")
+    log(c, f"{nome}: pausa tolta (rc={rc})")
+
+
+def esegui_riavvio(nome, tty, sid, cartella=None):
+    """Processo staccato: riavvia.py; sul rifiuto (uscita 2 = guardie rosse, niente scritto) RITENTA da solo fino a
+    riavvio_max_s: il prossimo fine turno puo' non arrivare mai se la sessione resta ferma (24/11). Si ferma se la nota
+    non c'e' piu' (letta: riavvio fatto) o non e' piu' fresca. Nota riscritta: si continua con quella. Uscita 3 = sessione
+    gia' sostituita = ok. Altri fallimenti: pausa e firma tolte, riga RIAVVIO FALLITO (il guardiano avvisa)."""
+    c = cfg()
+    t0, n = time.time(), 0
+    inizio = time.strftime("%Y-%m-%d %H:%M:%S")
+    nota = os.path.join(c["passaggi_dir"], f"{nome}.md")
+    arg = [cartella] if cartella else ["--sup"]
+    if not cartella:
+        arg += ["--prima", json.dumps([sys.executable, os.path.abspath(__file__), "--prima-riavvio", nome])]
+    while True:
+        n += 1
+        t1 = time.time()
+        aggiorna_firma(c, nome, t=t1)
+        try:  # tempo massimo: alla scadenza subprocess ferma solo il suo figlio diretto (riavvia.py), mai una sessione
+            r = subprocess.run([sys.executable, c["riavvia"], nome, tty, *arg, "--attendi", str(c["attendi_min"]), "--sid", sid],
+                               capture_output=True, text=True, timeout=c["riavvio_max_s"])
+        except subprocess.TimeoutExpired:
+            r = subprocess.CompletedProcess([], 124, "", f"SCADUTO: riavvia.py oltre {c['riavvio_max_s']} s")
+        esito = (r.stdout + r.stderr).strip()[-300:]
+        log(c, f"{nome}: riavvia.py rc={r.returncode} in {time.time() - t1:.0f} s (tentativo {n}): {esito}")
+        if r.returncode in (0, 3):
+            if r.returncode == 3:
+                log(c, f"{nome}: sessione gia' sostituita (uscita 3): esito buono, firma tenuta")
+            try:  # riuscito: la pausa la toglie la sessione nuova, il segno non serve piu'
+                os.remove(segno_pausa(c, nome))
+            except OSError:
+                pass
+            return
+        togli_pausa(c, nome)
+        if r.returncode != 2:
+            motivo = f"uscita {r.returncode}: {esito}"
+            break
+        if not os.path.exists(nota):
+            motivo = ""  # letta da /riparti: riavviata in altro modo
+            break
+        if time.time() - t0 >= c["riavvio_max_s"]:
+            motivo = f"{n} tentativi in {int((time.time() - t0) // 60)} min, ultimo: {esito}"
+            break
+        if time.time() - os.path.getmtime(nota) >= c["nota_fresca_s"]:
+            motivo = f"nota non piu' fresca dopo {n} tentativi (riscrivila e chiudi il turno), ultimo: {esito}"
+            break
+        registra_riavvii(c, f"{nome} {tty}: tentativo {n} rifiutato, ritento fra {c['ritenta_s']} s")
+        time.sleep(c["ritenta_s"])
+    try:  # G5: firma tolta, al prossimo fine turno si riprova (riavvia.py ha la sua guardia dei 5 min)
+        os.remove(firma_path(c, nome))
+    except OSError:
+        pass
+    log(c, f"{nome}: riavvio fallito -> firma tolta ({motivo or 'nota gia letta'})")
+    if motivo and r.returncode not in (9, 10) and not nome.startswith("PROVA-"):  # 9 = fatto ma doppioni; 10 = freno, ha gia' il suo allarme
+        try:
+            with open(c["riavvii_log"], "a", encoding="utf-8") as f:
+                f.write(time.strftime("%Y-%m-%d %H:%M:%S") + f" RIAVVIO FALLITO {nome} {tty.replace('/dev/', '')} (riavvio {inizio}): "
+                        + " ".join(motivo.split()) + "\n")
         except OSError:
             pass
-        log(c, f"{nome}: riavvio fallito -> pausa tolta (rc={rc}), firma tolta")
 
 
 def main():
@@ -367,7 +445,9 @@ def main():
         return
     if len(sys.argv) > 1:
         if sys.argv[1] == "--esegui-riavvio":
-            return esegui_riavvio(sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else None)
+            return esegui_riavvio(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5] if len(sys.argv) > 5 else None)
+        if sys.argv[1] == "--prima-riavvio":
+            return prima_riavvio(sys.argv[2])
         if sys.argv[1] == "--misura":
             t0 = time.perf_counter()
             n, k = misura(sys.argv[2])

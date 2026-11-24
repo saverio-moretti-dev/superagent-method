@@ -12,8 +12,13 @@ GUARDIA = os.environ.get("CG_GUARDIA") or os.path.join(os.path.dirname(QUI), "to
 
 FINTO_RIAVVIA = """import os, sys, time
 open(os.environ["FINTO_LOG"], "a").write("riavvia " + " ".join(sys.argv[1:]) + "\\n")
+n = sum(l.startswith("riavvia") for l in open(os.environ["FINTO_LOG"]))
+lista = os.environ.get("FINTO_RC", "0").split(",")  # «2,2,0» = un codice per tentativo, poi l'ultimo
+rc = int(lista[min(n, len(lista)) - 1])
+if "--prima" in sys.argv and os.environ.get("FINTO_VERDE", "1") == "1":  # come riavvia.py: --prima solo a guardie verdi
+    import json, subprocess
+    subprocess.run(json.loads(sys.argv[sys.argv.index("--prima") + 1]))
 time.sleep(float(os.environ.get("FINTO_SLEEP", "0")))
-rc = int(os.environ.get("FINTO_RC", "0"))
 print("gira gia' un'altra sessione" if rc == 3 else "riavviato")
 sys.exit(rc)
 """
@@ -183,6 +188,123 @@ class Guardia(unittest.TestCase):
         self.hook("Stop", "COORD-T", 5, sid="nuova")  # stessa nota (non ancora letta da /riparti)
         time.sleep(1.5)
         self.assertEqual(len(self.lanci()), 1)
+
+    # --- 24/11: ritenta da sola, pausa solo a guardie verdi ---
+    def opzioni(self, **k):
+        with open(self.conf) as f:
+            conf = json.load(f)
+        conf.update(k)
+        with open(self.conf, "w") as f:
+            json.dump(conf, f)
+
+    def aspetta(self, vero, secondi=8):
+        fine = time.time() + secondi
+        while time.time() < fine and not vero():
+            time.sleep(0.1)
+        time.sleep(0.7)
+
+    def finti(self):
+        return open(self.log).read().splitlines()
+
+    def n_lanci(self):
+        return sum(l.startswith("riavvia") for l in self.finti())
+
+    def riavvii(self):
+        try:
+            return open(os.path.join(self.t, "riavvii.log")).read()
+        except OSError:
+            return ""
+
+    def test_ritenta_senza_un_altro_stop(self):
+        for nome in ("COORD-T", "AGENTE-T"):
+            with self.subTest(nome):
+                open(self.log, "w").close()
+                self.opzioni(ritenta_s=0.2)
+                self.env["FINTO_RC"] = "2,2,0"
+                self.nota(nome)
+                self.hook("Stop", nome, 160, sid="sid-" + nome, cwd="/x")
+                self.aspetta(lambda: self.n_lanci() >= 3)
+                self.assertEqual(self.n_lanci(), 3)
+                self.assertTrue(all(f"--sid sid-{nome}" in l for l in self.finti() if l.startswith("riavvia")))
+                self.assertIn("tentativo 2", self.riavvii())
+                self.assertNotIn("RIAVVIO FALLITO " + nome, self.riavvii())
+                self.assertTrue(os.path.exists(os.path.join(self.stato, f"riavvio-{nome}.json")))
+
+    def test_ritenta_non_oltre_il_tempo_e_avvisa(self):
+        self.opzioni(ritenta_s=0.2, riavvio_max_s=2)
+        self.env["FINTO_RC"] = "2"
+        self.nota("COORD-T")
+        self.hook("Stop", "COORD-T", 160)
+        self.aspetta(lambda: "RIAVVIO FALLITO" in self.riavvii())
+        self.assertRegex(self.riavvii(), r"(?m)^\S+ \S+ RIAVVIO FALLITO COORD-T \S+ \(riavvio \d{4}-\d\d-\d\d \d\d:\d\d:\d\d\): .+$")
+        n = self.n_lanci()
+        self.assertGreater(n, 1)
+        time.sleep(1)
+        self.assertEqual(self.n_lanci(), n)
+        self.assertFalse(os.path.exists(os.path.join(self.stato, "riavvio-COORD-T.json")), "firma rimasta: il prossimo fine turno non riprova")
+
+    def test_ritenta_si_ferma_a_nota_vecchia(self):
+        self.opzioni(ritenta_s=0.2, nota_fresca_s=2)
+        self.env["FINTO_RC"] = "2"
+        self.nota("COORD-T")
+        self.hook("Stop", "COORD-T", 160)
+        self.aspetta(lambda: "RIAVVIO FALLITO" in self.riavvii())
+        self.assertIn("nota", self.riavvii().split("RIAVVIO FALLITO")[1])
+
+    def test_ritenta_nota_riscritta_continua(self):
+        """Nota riscritta durante l'attesa: si continua con quella nuova (il suo Stop e' gia' passato)."""
+        self.opzioni(ritenta_s=0.2, nota_fresca_s=3)
+        self.env["FINTO_RC"] = "2," * 40 + "0"
+        n = self.nota("COORD-T")
+        self.hook("Stop", "COORD-T", 160)
+        for _ in range(10):
+            time.sleep(0.5)
+            os.utime(n)
+        self.assertNotIn("RIAVVIO FALLITO", self.riavvii())
+        self.assertGreater(self.n_lanci(), 4)
+        os.remove(n)  # letta da /riparti: si smette, senza allarme
+        self.aspetta(lambda: False, 1.5)
+        k = self.n_lanci()
+        time.sleep(1)
+        self.assertEqual(self.n_lanci(), k)
+        self.assertNotIn("RIAVVIO FALLITO", self.riavvii())
+
+    def test_altri_codici_non_ritenta(self):
+        self.opzioni(ritenta_s=0.2)
+        for rc in ("4", "5", "6", "8"):
+            with self.subTest(rc):
+                open(self.log, "w").close()
+                self.env["FINTO_RC"] = rc
+                self.nota("COORD-T")
+                self.hook("Stop", "COORD-T", 160, sid="s" + rc)
+                self.aspetta(lambda: "sup riprendi" in self.finti())
+                self.assertEqual(self.n_lanci(), 1)
+
+    def test_guardie_rosse_niente_pausa(self):
+        self.opzioni(ritenta_s=0.2, riavvio_max_s=2)
+        self.env.update(FINTO_RC="2", FINTO_VERDE="0")
+        self.nota("COORD-T")
+        self.hook("Stop", "COORD-T", 160)
+        self.aspetta(lambda: "RIAVVIO FALLITO" in self.riavvii())
+        self.assertEqual([l for l in self.finti() if l.startswith("sup")], [], "pausa, riprendi o trascrivi a guardie rosse")
+
+    def test_guardie_verdi_trascrivi_poi_pausa(self):
+        self.nota("COORD-T")
+        self.hook("Stop", "COORD-T", 160)
+        self.aspetta(lambda: "sup pausa" in self.finti(), 4)
+        self.assertEqual([l for l in self.finti() if l.startswith("sup")], ["sup trascrivi", "sup pausa"])
+        n = os.path.getmtime(os.path.join(self.passaggi, "COORD-T.md"))
+        with open(os.path.join(self.stato, "riavvio-COORD-T.json")) as f:
+            self.assertEqual(json.load(f)["nota"], f"{n:.0f}")  # trascrivi riscrive la nota, la data resta
+
+    def test_pausa_tolta_fra_un_tentativo_e_l_altro(self):
+        self.opzioni(ritenta_s=0.2)
+        self.env["FINTO_RC"] = "2,0"
+        self.nota("COORD-T")
+        self.hook("Stop", "COORD-T", 160)
+        self.aspetta(lambda: self.n_lanci() >= 2)
+        self.assertEqual([l.split()[1] for l in self.finti() if l.startswith("sup")],
+                         ["trascrivi", "pausa", "riprendi", "trascrivi", "pausa"])
 
     # --- G20: lock con età e tempo massimo del riavvio ---
     def firma(self, nome, eta):
