@@ -268,6 +268,7 @@ class Guardia(unittest.TestCase):
         time.sleep(1)
         self.assertEqual(self.n_lanci(), k)
         self.assertNotIn("RIAVVIO FALLITO", self.riavvii())
+        self.assertFalse(os.path.exists(os.path.join(self.stato, "riavvio-COORD-T.json")), "processo caduto: firma rimasta")
 
     def test_altri_codici_non_ritenta(self):
         self.opzioni(ritenta_s=0.2)
