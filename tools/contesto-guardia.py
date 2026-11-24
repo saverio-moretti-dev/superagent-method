@@ -344,12 +344,18 @@ def prima_riavvio(nome):
     nota = os.path.join(c["passaggi_dir"], f"{nome}.md")
     try:
         data = os.stat(nota)
-    except OSError:
-        data = None
+    except OSError:  # gia' letta da /riparti: niente trascrivi ne' pausa (24/11)
+        log(c, f"{nome}: nota assente, niente trascrivi ne' pausa")
+        sys.exit(1)
     rc, out = sup(c, "trascrivi", nota)
     log(c, f"{nome}: trascrivi rc={rc} {out[:200]}")
-    if data and os.path.exists(nota):  # trascrivi riscrive la nota: senza, sembrerebbe fresca a ogni tentativo (e la firma non varrebbe piu')
+    if not os.path.exists(nota):
+        log(c, f"{nome}: nota letta durante trascrivi, niente pausa")
+        sys.exit(1)
+    try:  # trascrivi riscrive la nota: senza, sembrerebbe fresca a ogni tentativo (e la firma non varrebbe piu')
         os.utime(nota, ns=(data.st_atime_ns, data.st_mtime_ns))
+    except OSError:
+        pass
     with open(segno_pausa(c, nome), "w") as f:  # prima della pausa: se questo processo muore a meta', si toglie lo stesso
         f.write(time.strftime("%Y-%m-%d %H:%M:%S"))
     rc, out = sup(c, "pausa", "riavvio automatico")

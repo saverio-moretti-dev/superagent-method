@@ -27,8 +27,12 @@ print(os.environ.get("FINTO_VIVI", "[]"))
 """
 FINTO_SUP = """import os, sys
 open(os.environ["FINTO_LOG"], "a").write("sup " + " ".join(sys.argv[1:2]) + "\\n")
-if sys.argv[1] == "trascrivi":
-    open(sys.argv[2], "a").write("\\n- messaggio trascritto\\n")
+if sys.argv[1] == "trascrivi":  # come il vero: nota assente = errore, mai creata
+    import time; time.sleep(float(os.environ.get("FINTO_TRASCRIVI_SLEEP", "0")))
+    if not os.path.exists(sys.argv[2]):
+        sys.exit(1)
+    with open(sys.argv[2], "r+") as f:
+        f.seek(0, 2); f.write("\\n- messaggio trascritto\\n")
 """
 
 
@@ -269,6 +273,26 @@ class Guardia(unittest.TestCase):
         self.assertEqual(self.n_lanci(), k)
         self.assertNotIn("RIAVVIO FALLITO", self.riavvii())
         self.assertFalse(os.path.exists(os.path.join(self.stato, "riavvio-COORD-T.json")), "processo caduto: firma rimasta")
+
+    def test_nota_letta_prima_di_trascrivi_niente_pausa(self):
+        """Nota letta fra la guardia verde e --prima: niente trascrivi ne' pausa, la nota non rinasce."""
+        self.hook("Stop", "COORD-T", 10)  # crea la cartella di stato
+        subprocess.run([sys.executable, GUARDIA, "--prima-riavvio", "COORD-T"], env=self.env, timeout=30)
+        self.assertEqual([l for l in self.finti() if l.startswith("sup")], [])
+        self.assertEqual(os.listdir(self.passaggi), [])
+
+    def test_nota_letta_durante_trascrivi_niente_pausa(self):
+        self.hook("Stop", "COORD-T", 10)
+        self.env["FINTO_TRASCRIVI_SLEEP"] = "1"
+        n = self.nota("COORD-T")
+        p = subprocess.Popen([sys.executable, GUARDIA, "--prima-riavvio", "COORD-T"], env=self.env)
+        fine = time.time() + 5
+        while time.time() < fine and "sup trascrivi" not in self.finti():
+            time.sleep(0.05)
+        os.remove(n)
+        p.wait(30)
+        self.assertEqual([l for l in self.finti() if l.startswith("sup")], ["sup trascrivi"])
+        self.assertEqual(os.listdir(self.passaggi), [])
 
     def test_altri_codici_non_ritenta(self):
         self.opzioni(ritenta_s=0.2)
