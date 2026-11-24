@@ -891,7 +891,7 @@ class Ferma(Base):
 
         def scrivi(tty, testo, prova, svuota=0):
             self.inviati.append((self.r.tty_corto(tty), testo, self.ora.t))
-            if testo == self.r.TESTO_FERMA and self.risponde:
+            if testo.startswith(self.r.TESTO_FERMA) and self.risponde:
                 with open(os.path.join(self.home, ".claude", "passaggi", f"{nome}.pronto"), "w") as f:
                     f.write("task b1 coda\ncron c1 giro\nfine\n")
             elif testo == "/exit":
@@ -911,7 +911,7 @@ class Ferma(Base):
     def test_50_agente_ferma_poi_exit(self):
         self.prepara("PROVA-A")
         self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 0)
-        self.assertEqual(self.inviati_testi()[:2], [self.r.TESTO_FERMA, "/exit"])
+        self.assertEqual(self.inviati_testi()[:2], [self.r.TESTO_FERMA + " PROVA-A", "/exit"])
         self.assertIn("FERMA OK PROVA-A ttys002: task b1 coda | cron c1 giro | fine", self.log())
         with open(self.r.FERMA_MD, encoding="utf-8") as f:
             self.assertIn("CronDelete", f.read())
@@ -943,7 +943,7 @@ class Ferma(Base):
         scrivi0 = self.r.scrivi
 
         def scrivi(tty, testo, prova, svuota=0):
-            if testo == self.r.TESTO_FERMA and os.path.exists(p):  # l'agente pigro: c'è già, non riscrive
+            if testo.startswith(self.r.TESTO_FERMA) and os.path.exists(p):  # l'agente pigro: c'è già, non riscrive
                 self.inviati.append((self.r.tty_corto(tty), testo, self.ora.t))
                 return True
             return scrivi0(tty, testo, prova, svuota)
@@ -963,7 +963,7 @@ class Ferma(Base):
         self.prepara("SUPERAGENTE")
         self.figli = ["zsh 999"]
         self.assertEqual(self.lancia("SUPERAGENTE", TTY, "--sup"), 0)
-        self.assertEqual(self.inviati_testi()[:2], [self.r.TESTO_FERMA, "/clear"])
+        self.assertEqual(self.inviati_testi()[:2], [self.r.TESTO_FERMA + " SUPERAGENTE", "/clear"])
         self.assertIn("VIVI DOPO FERMA SUPERAGENTE", self.log())
 
     def test_55_figli_prima_non_bloccano_le_guardie(self):
@@ -1014,10 +1014,35 @@ class Ferma(Base):
         self.prepara("PROVA-A")
         self.con_ferma = False
         self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 0)
-        self.assertNotIn(self.r.TESTO_FERMA, self.inviati_testi())
+        self.assertFalse([x for x in self.inviati_testi() if x.startswith(self.r.TESTO_FERMA)])
 
     def test_61_testo_ferma_corto(self):
         self.assertLessEqual(len(self.r.TESTO_FERMA), 44)
+
+    def test_64_il_nome_arriva_nel_messaggio(self):
+        """24/11 PROVA-RITENTO: la sessione non aveva scritto la nota, non sapeva il suo nome, niente .pronto → uscita 8.
+        Qui la sessione finta sa solo ciò che legge nel messaggio."""
+        self.prepara("PROVA-A")
+        scrivi0 = self.r.scrivi
+        self.risponde = False
+
+        def scrivi(tty, testo, prova, svuota=0):
+            ok = scrivi0(tty, testo, prova, svuota)
+            if testo.startswith(self.r.TESTO_FERMA + " "):
+                nome = testo[len(self.r.TESTO_FERMA) + 1:]
+                with open(os.path.join(self.home, ".claude", "passaggi", f"{nome}.pronto"), "w") as f:
+                    f.write("fine\n")
+            return ok
+        self.r.scrivi = scrivi
+        self.assertEqual(self.lancia("PROVA-A", TTY, "/tmp/x"), 0)
+        with open(self.r.FERMA_MD, encoding="utf-8") as f:
+            self.assertIn("parola dopo FERMA.md", f.read())
+
+    def test_65_testo_ferma_mai_oltre_60(self):
+        for n in ("METODO", "COLLAUDO-REGIA", "X" * 16):
+            self.assertEqual(self.r.testo_ferma(n), f"{self.r.TESTO_FERMA} {n}")
+            self.assertLessEqual(len(self.r.testo_ferma(n)), 60)
+        self.assertEqual(self.r.testo_ferma("X" * 17), self.r.TESTO_FERMA)  # troppo lungo: come prima, nome dalla nota
 
 
 class SottoAgenti(Base):

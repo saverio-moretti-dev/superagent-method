@@ -59,7 +59,7 @@ del tty rimasto → chi rilanciava aspettava 300 s): ogni osascript ha 15 s; se 
 è arrivato alla scheda: niente è stato scritto, quindi un nuovo riavvio non fa danni.
 
 Riavvio pulito (G1 B4, 13/11; R40, R78, 12/11 01:06: Monitor doppio e doppioni dopo il riavvio):
-  h. prima di /exit o /clear la sessione riceve «Riavvio: esegui ~/.claude/passaggi/FERMA.md» (file scritto qui):
+  h. prima di /exit o /clear la sessione riceve «Riavvio: esegui ~/.claude/passaggi/FERMA.md NOME» (file scritto qui):
      TaskStop di ogni Monitor/comando in sottofondo, CronDelete di ogni cron (non con --sup), poi l'elenco in
      ~/.claude/passaggi/NOME.pronto (cancellato prima dell'invio: un .pronto vecchio uguale non si riscrive). Si aspetta quel file (FERMA_S) e la sessione ferma. Agente: se dopo restano figli
      in sottofondo, niente /exit (uscita 8). SUP (/clear): si va avanti e il log lo dice; i rimasti li segnala
@@ -99,6 +99,7 @@ LOG = os.path.join(CASA, ".claude", "consumo", "riavvii.log")
 FERMA_S = int(os.environ.get("RIAVVIA_FERMA_S") or 180)
 FERMA_MD = os.path.join(PASSAGGI, "FERMA.md")
 TESTO_FERMA = "Riavvio: esegui ~/.claude/passaggi/FERMA.md"   # corto: oltre ~60 caratteri diventa un incolla
+TESTO_FERMA_MAX = 60
 ISTRUZIONI_FERMA = """# Riavvio in arrivo (riavvia.py, passo h)
 
 Tra poco questa sessione viene riavviata. Prima, senza domande e senza messaggi a nessuno:
@@ -106,8 +107,8 @@ Tra poco questa sessione viene riavviata. Prima, senza domande e senza messaggi 
 1. CronList, poi CronDelete di ogni cron.
 2. TaskStop di ogni Monitor e di ogni comando in sottofondo che hai lanciato (gli id sono nei risultati di Monitor e
    di Bash in sottofondo, e nelle loro notifiche). Solo i tuoi.
-3. Scrivi ~/.claude/passaggi/NOME.pronto, dove NOME è il nome della tua sessione (riga `nome:` della tua nota di
-   passaggio): una riga per cosa fermata (`cron <id> <descrizione>` / `task <id> <descrizione>`), poi `fine`.
+3. Scrivi ~/.claude/passaggi/NOME.pronto, dove NOME è la parola dopo FERMA.md nel messaggio che hai ricevuto (se non
+   c'è: la riga `nome:` della tua nota di passaggio): una riga per cosa fermata (`cron <id> <descrizione>` / `task <id> <descrizione>`), poi `fine`.
    Se non c'era niente: solo `fine`. Scrivilo SEMPRE, anche se esiste già con lo stesso testo: conta l'ora del file.
 4. Fine del turno: non fare altro (il riavvio lo fa lo script).
 """
@@ -1032,11 +1033,18 @@ def istruzioni_ferma(sup):
             .replace("(`cron <id> <descrizione>` / `task <id> <descrizione>`)", "(`task <id> <descrizione>`)"))
 
 
+def testo_ferma(nome):
+    """Messaggio di FERMA col nome della sessione: il .pronto non dipende più dalla nota (24/11 PROVA-RITENTO: chi non
+    l'aveva scritta non sapeva il nome, FALLITO dopo 180 s). Il nome sta in fondo: rileggi.py riconosce l'inizio."""
+    testo = f"{TESTO_FERMA} {nome}"
+    return testo if len(testo) <= TESTO_FERMA_MAX else TESTO_FERMA
+
+
 def ferma_tutto(nome, tty, prova, sup=False):
     """Passo h: la sessione ferma i suoi task e cron e lo scrive in NOME.pronto. → None se fatto, altrimenti il motivo."""
     pronto = os.path.join(PASSAGGI, f"{nome}.pronto")
     if prova:
-        print(f"  (prova) scriverei {TESTO_FERMA!r} e aspetterei {pronto}")
+        print(f"  (prova) scriverei {testo_ferma(nome)!r} e aspetterei {pronto}")
         return None
     try:  # 23/11 VISIBILITA: .pronto «fine» delle 14:02 già lì, l'agente l'ha letto, era uguale e non l'ha riscritto →
         os.remove(pronto)  # mtime vecchio, FALLITO dopo 180 s. Tolto prima di FERMA, il file nuovo si vede di sicuro.
@@ -1045,7 +1053,7 @@ def ferma_tutto(nome, tty, prova, sup=False):
     with open(FERMA_MD, "w", encoding="utf-8") as f:
         f.write(istruzioni_ferma(sup))
     t_invio = time.time()
-    if not comando(tty, TESTO_FERMA, prova):
+    if not comando(tty, testo_ferma(nome), prova):
         return "casella non svuotata: FERMA non mandato"
     time.sleep(1.5)
     casella = leggi_casella(tty)
