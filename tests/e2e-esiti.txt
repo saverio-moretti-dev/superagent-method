@@ -10,18 +10,18 @@ VERSIONE METODO — d4a860d (riavvia.py = a3f2f0a)
 C8 nota assente                         · PASSA · rc=2 niente invio
 C1 riavvio pulito                       · PASSA · rc=0 verificato, /riparti nella trascrizione nuova
 C2 «rit» lasciato nella casella         · PASSA · rc=0 verificato, nessun prompt sporco
-C3 prompt «cron» 0,3 s dopo il lancio   · PASSA · rc=0 verificato, nessun prompt sporco
+C3 prompt «cron» 0,3 s dopo il lancio   · NON CONCLUSIVO · rc=0; il prompt è finito nella sessione VECCHIA prima del /clear (vedi CORREZIONE)
 C4 sessione al lavoro (turno lungo)     · PASSA · rc=2 niente invio, nessuna trascrizione nuova
-C5 messaggio durante --attendi          · PASSA · rc=0 verificato, nessun prompt sporco
+C5 messaggio durante --attendi          · FALLISCE sul messaggio · rc=0, contesto svuotato, ma messaggio contaminato dal segno (vedi CORREZIONE)
 C7 nota vecchia 60 min                  · PASSA · rc=2 niente invio
 C6 10 riavvii di fila (blocco 1 s)      · PASSA · 10/10 svuotati e verificati
 
 GIRI NON VALIDI (scartati, colpa della prova, non di riavvia.py)
 - giro 1 su a3f2f0a: misura leggeva anche la trascrizione della riproduzione (stessa cartella) → 'rit\n/clear' ovunque;
   --safe-mode non carica comandi → /riparti mai «visto» (rc=5). Corretto: s.mie(), --setting-sources project + /riparti finto.
-- primo giro d4a860d: senza impostazioni utente, permissionMode auto → dialogo /auto-mode-setup; riavvia.py giustamente
-  rc=4 (casella non letta, /clear NON mandato). Corretto: --permission-mode default + guardia dialogo().
-  ~/.claude/settings.json verificato intatto (ultima modifica 19:24).
+- primo giro d4a860d: dialogo /auto-mode-setup aperto nella prova; riavvia.py rc=4 (casella non letta, /clear NON mandato).
+  Causa SUPPOSTA: niente impostazioni utente + permissionMode auto. Chi l'ha aperto NON è accertato. Corretto: --permission-mode default + guardia dialogo().
+  ~/.claude/settings.json: data di modifica 19:24, prima delle prove (controllato solo quel file, non ~/.claude.json).
 
 CORREZIONI ALLO STRUMENTO
 - TIOCSTI = EPERM su macOS → iniezione con do script nella scheda (senza invio: testo + «\»).
@@ -31,3 +31,12 @@ CORREZIONI ALLO STRUMENTO
 
 DA SAPERE
 - Login claude: «this sign-in ends between 2026-11-12 and 2026-11-15» → claude auth login prima, o i riavvii senza persona si fermano.
+
+CORREZIONE del 2026-11-25 (errore del tester: la misura cercava solo «/clear» nei prompt, non dove finiva il messaggio iniettato)
+- C5: nella trascrizione nuova 1be4fb97 il messaggio è arrivato come «QZXRIAVVIO\nmessaggio da un'altra sessione: rispondi ok»
+  (19:13:28Z, fra /clear e /riparti); uguale il giro prima (5d8fae5b). Il messaggio non si perde, ma parte col segno davanti e
+  prima di /riparti. Difetto di riavvia.py d4a860d da riferire a METODO; sulla versione di oggi NON riprovato.
+- C3: «sveglia cron» è un prompt normale della sessione vecchia (43bdbee0, 19:12:53Z): l'invio è caduto prima del /clear, quindi
+  la coincidenza esatta col /clear non è stata provata.
+- C2: variante su più righe («rit» + a capo), non «rit/clear» esatto; inoltre C2 e C3 accettano anche rc=2 come esito buono.
+- Gli esiti valgono per d4a860d; riavvia.py da allora è cambiato in 14 commit.
